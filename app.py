@@ -4,6 +4,10 @@ from twilio.twiml.messaging_response import MessagingResponse
 import requests
 import sqlite3
 import json
+from dotenv import load_dotenv
+
+# Carrega as variáveis de ambiente do arquivo 'twilio_env'
+load_dotenv(dotenv_path='twilio_env')
 
 # --- Configurações da API do WhatsApp ---
 META_TOKEN = os.environ.get('META_TOKEN')
@@ -117,7 +121,6 @@ def get_bot_response(user_id, message_text):
         else:
             return "Opção inválida. Por favor, escolha uma das opções de 1 a 4."
     
-    # --- NOVO ESTADO: Agora com opções numeradas ---
     if state['state'] == 'awaiting_continue_or_end':
         if message_text in ["1", "continuar"]:
             user_states[user_id]['state'] = 'awaiting_location'
@@ -169,7 +172,7 @@ def get_bot_response(user_id, message_text):
             user_states[user_id] = {'state': 'start'}
             
             if location_map[message_text] == 'Sim':
-                return resumo + "\n\nAqui está o link para a localização da nossa loja no Google Maps: https://maps.app.goo.gl/UYBxmyn1qm893aRC6. Estamos ansiosos para te receber! Se precisar de algo mais, é só me chamar."
+                return resumo + "\n\nAqui está o link para a localização da nossa loja no Google Maps: [Link da sua localização]. Estamos ansiosos para te receber! Se precisar de algo mais, é só me chamar."
             else:
                 return resumo + "\n\nOk. Se precisar de algo, estarei aqui para ajudar. Obrigado!"
         else:

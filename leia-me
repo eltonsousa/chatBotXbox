@@ -1,21 +1,30 @@
-1. Inicie o Servidor Flask
-   Primeiro, abra seu terminal, navegue até a pasta do seu projeto (cd nome-da-sua-pasta) e execute seu arquivo Python para iniciar o servidor.
+# 1. Navegue até a pasta do projeto
 
-Bash
+cd C:\apps-dev\chatBotXbox
+
+# 2. Ative o ambiente virtual
+
+venv\Scripts\activate
+
+# 3. Inicie o Servidor Flask
+
+Primeiro, abra seu terminal, navegue até a pasta do seu projeto (cd nome-da-sua-pasta) e execute seu arquivo Python para iniciar o servidor.
+
 python app.py
 
 Você verá uma mensagem como \* Running on http://127.0.0.1:5000 no seu terminal, confirmando que o servidor está no ar.
 
-2. Inicie o ngrok
-   Com o servidor rodando, abra uma nova janela do terminal e execute o ngrok para expor a porta 5000 do seu servidor para a internet.
+# 4. Inicie o ngrok
 
-Bash
+Com o servidor rodando, abra uma nova janela do terminal e execute o ngrok para expor a porta 5000 do seu servidor para a internet.
+
 ngrok http 5000
 
 Quando o ngrok iniciar, ele vai te dar um URL temporário. Ele se parecerá com algo como https://[código-aleatório].ngrok-free.app. Copie este URL.
 
-3. Atualize o Webhook na Twilio ou Meta
-   Esta é a parte mais importante. Sempre que você inicia o ngrok, o URL é novo. Você precisa ir até o painel da Twilio ou da Meta e atualizar o campo de "Webhook URL" com o novo endereço que o ngrok acabou de te dar.
+# 5. Atualize o Webhook na Twilio ou Meta
+
+Esta é a parte mais importante. Sempre que você inicia o ngrok, o URL é novo. Você precisa ir até o painel da Twilio ou da Meta e atualizar o campo de "Webhook URL" com o novo endereço que o ngrok acabou de te dar.
 
 O formato correto do URL no seu provedor de serviço (Twilio ou Meta) deve ser:
 
