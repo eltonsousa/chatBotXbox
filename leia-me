@@ -1,0 +1,26 @@
+1. Inicie o Servidor Flask
+   Primeiro, abra seu terminal, navegue até a pasta do seu projeto (cd nome-da-sua-pasta) e execute seu arquivo Python para iniciar o servidor.
+
+Bash
+python app.py
+
+Você verá uma mensagem como \* Running on http://127.0.0.1:5000 no seu terminal, confirmando que o servidor está no ar.
+
+2. Inicie o ngrok
+   Com o servidor rodando, abra uma nova janela do terminal e execute o ngrok para expor a porta 5000 do seu servidor para a internet.
+
+Bash
+ngrok http 5000
+
+Quando o ngrok iniciar, ele vai te dar um URL temporário. Ele se parecerá com algo como https://[código-aleatório].ngrok-free.app. Copie este URL.
+
+3. Atualize o Webhook na Twilio ou Meta
+   Esta é a parte mais importante. Sempre que você inicia o ngrok, o URL é novo. Você precisa ir até o painel da Twilio ou da Meta e atualizar o campo de "Webhook URL" com o novo endereço que o ngrok acabou de te dar.
+
+O formato correto do URL no seu provedor de serviço (Twilio ou Meta) deve ser:
+
+[URL_DO_NGROK]/whatsapp_webhook
+
+Por exemplo: https://abcd1234efgh.ngrok-free.app/whatsapp_webhook
+
+Após salvar, o seu bot estará pronto para receber mensagens novamente!
