@@ -2,3 +2,4 @@ Flask
 twilio
 python-dotenv
 requests
+dash-bootstrap-components

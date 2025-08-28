@@ -1,282 +1,369 @@
-import os
-from flask import Flask, request
-from twilio.twiml.messaging_response import MessagingResponse
-import requests
+import dash
+import dash_bootstrap_components as dbc
+from dash import dcc, html, callback_context
+from dash.dependencies import Input, Output
+from pages import dashboard_page, status_page, leads_page
 import sqlite3
-import json
-from dotenv import load_dotenv
+import pandas as pd
+from datetime import datetime
+from flask import request
+from twilio.twiml.messaging_response import MessagingResponse
+import os
+import re
 
-# Carrega as variáveis de ambiente do arquivo 'twilio_env'
-load_dotenv(dotenv_path='twilio_env')
+# Use o link direto para a folha de estilo do Bootstrap
+BS_THEME = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+FA_ICONS = "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
 
-# --- Configurações da API do WhatsApp ---
-META_TOKEN = os.environ.get('META_TOKEN')
-PHONE_NUMBER_ID = os.environ.get('PHONE_NUMBER_ID')
-VERIFY_TOKEN = os.environ.get('VERIFY_TOKEN') 
+app = dash.Dash(__name__, external_stylesheets=[BS_THEME, FA_ICONS], suppress_callback_exceptions=True)
+server = app.server
 
-# --- Configurações do Flask e do Banco de Dados ---
-app = Flask(__name__)
-conn = sqlite3.connect('chatbot.db')
-cursor = conn.cursor()
+# --- Funções de interação com o banco de dados ---
+def init_db():
+    conn = sqlite3.connect('chatbot.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS leads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            nome TEXT,
+            email TEXT,
+            telefone TEXT,
+            endereco TEXT,
+            modelo TEXT,
+            ano INTEGER,
+            tipo_de_armazenamento TEXT,
+            jogos_selecionados TEXT,
+            status TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
-# --- VARIÁVEL GLOBAL DE ESTADOS DO USUÁRIO ---
-user_states = {}
+def save_lead_to_db(lead_data):
+    conn = sqlite3.connect('chatbot.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO leads (timestamp, nome, email, telefone, endereco, modelo, ano, tipo_de_armazenamento, jogos_selecionados, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        lead_data.get('timestamp'),
+        lead_data.get('nome'),
+        lead_data.get('email'),
+        lead_data.get('telefone'),
+        lead_data.get('endereco'),
+        lead_data.get('modelo'),
+        lead_data.get('ano'),
+        lead_data.get('tipo_de_armazenamento'),
+        lead_data.get('jogos_selecionados'),
+        lead_data.get('status')
+    ))
+    conn.commit()
+    conn.close()
 
-def create_table():
-    try:
+def update_lead_status_and_data(phone_number, new_status, data_to_update=None):
+    conn = sqlite3.connect('chatbot.db')
+    cursor = conn.cursor()
+
+    if data_to_update:
+        update_str = ", ".join([f"{key} = ?" for key in data_to_update.keys()])
+        values = list(data_to_update.values())
+        values.append(new_status)
+        values.append(phone_number)
+        values.append(phone_number)
+        
+        cursor.execute(f'''
+            UPDATE leads
+            SET {update_str}, status = ?
+            WHERE telefone = ? AND id = (
+                SELECT id FROM leads
+                WHERE telefone = ?
+                ORDER BY timestamp DESC
+                LIMIT 1
+            )
+        ''', tuple(values))
+    else:
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS leads (
-                id INTEGER PRIMARY KEY,
-                nome TEXT,
-                email TEXT,
-                modelo TEXT,
-                ano INTEGER,
-                armazenamento TEXT,
-                jogos TEXT,
-                localizacao_solicitada TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            UPDATE leads
+            SET status = ?
+            WHERE telefone = ? AND id = (
+                SELECT id FROM leads
+                WHERE telefone = ?
+                ORDER BY timestamp DESC
+                LIMIT 1
             )
-        ''')
-        conn.commit()
-    except sqlite3.Error as e:
-        print(f"Erro ao criar a tabela: {e}")
-
-def save_lead(nome, email, modelo, ano, armazenamento, jogos, localizacao_solicitada):
-    try:
-        cursor.execute('''
-            INSERT INTO leads (nome, email, modelo, ano, armazenamento, jogos, localizacao_solicitada)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (nome, email, modelo, ano, armazenamento, jogos, localizacao_solicitada))
-        conn.commit()
-    except sqlite3.Error as e:
-        print(f"Erro ao salvar o lead: {e}")
-
-def get_bot_response(user_id, message_text):
-    state = user_states.get(user_id, {'state': 'start'})
-
-    # Verificação para encerrar a conversa a qualquer momento
-    if message_text.lower() in ["encerrar", "parar", "cancelar", "sair"]:
-        user_states[user_id] = {'state': 'start'}
-        return "Conversa encerrada. Se precisar de algo, é só me chamar novamente. Digite 'olá' para recomeçar."
+        ''', (new_status, phone_number, phone_number))
         
-    # Lógica aprimorada de início da conversa
-    if state['state'] == 'start':
-        if message_text.lower() in ["olá", "ola", "oi", "iniciar"]:
-            user_states[user_id] = {'state': 'awaiting_name'}
-            return "Olá! Sou seu assistente virtual para conserto e desbloqueio de Xbox 360. Para começar, por favor, me informe seu nome completo."
-        else:
-            return "Olá! Para iniciar a conversa, por favor, digite 'olá'."
+    conn.commit()
+    conn.close()
 
-    # Salva o Nome e Pede o E-mail
-    if state['state'] == 'awaiting_name':
-        user_states[user_id]['nome'] = message_text.strip().capitalize()
-        user_states[user_id]['state'] = 'awaiting_email'
-        nome_usuario = user_states[user_id]['nome']
-        return f"Ótimo, {nome_usuario}! Agora, por favor, me informe seu e-mail."
+def get_lead_status(phone_number):
+    conn = sqlite3.connect('chatbot.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT status FROM leads WHERE telefone = ? ORDER BY timestamp DESC LIMIT 1", (phone_number,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
 
-    # Valida e Salva o E-mail
-    if state['state'] == 'awaiting_email':
-        email = message_text.strip().lower()
-        if "@" in email and "." in email:
-            user_states[user_id]['email'] = email
-            user_states[user_id]['state'] = 'awaiting_model'
-            return "E-mail registrado! Agora, vamos falar sobre seu console. Qual é o modelo do seu Xbox 360?\nDigite:\n1. Fat\n2. Slim\n3. Super Slim"
-        else:
-            return "Parece que o e-mail não está em um formato válido. Por favor, digite seu e-mail novamente."
+def get_leads_count(phone_number):
+    conn = sqlite3.connect('chatbot.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM leads WHERE telefone = ?", (phone_number,))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
 
-    # Fluxo restante da conversa (mantido)
-    if state['state'] == 'awaiting_model':
-        model_map = {'1': 'Fat', '2': 'Slim', '3': 'Super Slim'}
-        if message_text in model_map:
-            user_states[user_id]['modelo'] = model_map[message_text]
-            user_states[user_id]['state'] = 'awaiting_year'
-            return "Certo. E qual é o ano de fabricação dele? (Entre 2007 e 2015)\nLembre-se: se for de 2015, o desbloqueio definitivo não será possível."
-        else:
-            return "Opção inválida. Por favor, escolha 1, 2 ou 3."
+def get_lead_info(phone_number):
+    conn = sqlite3.connect('chatbot.db')
+    df = pd.read_sql_query("SELECT * FROM leads WHERE telefone = ? ORDER BY timestamp DESC LIMIT 1", conn, params=(phone_number,))
+    conn.close()
+    return df.iloc[0] if not df.empty else None
 
-    if state['state'] == 'awaiting_year':
-        try:
-            year = int(message_text)
-            if 2007 <= year <= 2015:
-                user_states[user_id]['ano'] = year
-                user_states[user_id]['state'] = 'awaiting_storage'
-                return "Para copiar os jogos, precisamos de um dispositivo de armazenamento. Seu console tem HD interno, HD externo ou um pendrive de no mínimo 16GB?\nDigite:\n1. HD Interno\n2. HD Externo\n3. Pendrive\n4. Nenhuma das opções"
-            else:
-                return "Ano inválido. Por favor, digite um ano entre 2007 e 2015."
-        except ValueError:
-            return "Entrada inválida. Por favor, digite um número."
+# Garante que o banco de dados e a tabela existem quando o app inicia
+init_db()
 
-    if state['state'] == 'awaiting_storage':
-        if message_text == '4':
-            user_states[user_id]['armazenamento'] = 'Nenhuma'
-            user_states[user_id]['jogos'] = 'Nenhum'
-            user_states[user_id]['state'] = 'awaiting_continue_or_end'
-            return "Entendido. Não será possível continuar o processo de cópia de jogos sem um dispositivo de armazenamento.\n\nVocê gostaria de continuar a conversa para conserto e desbloqueio ou prefere encerrar?\nDigite:\n1. Continuar\n2. Encerrar"
-        
-        storage_map = {'1': 'HD Interno', '2': 'HD Externo', '3': 'Pendrive'}
-        if message_text in storage_map:
-            user_states[user_id]['armazenamento'] = storage_map[message_text]
-            user_states[user_id]['state'] = 'awaiting_games'
-            return "Ótimo! Agora, por favor, escolha até 3 jogos da lista. Digite os números separados por vírgula (ex: 1, 3, 4).\nOpções:\n1. GTA V\n2. PES 2013\n3. PES 2018\n4. FIFA 19"
-        else:
-            return "Opção inválida. Por favor, escolha uma das opções de 1 a 4."
-    
-    if state['state'] == 'awaiting_continue_or_end':
-        if message_text in ["1", "continuar"]:
-            user_states[user_id]['state'] = 'awaiting_location'
-            return "Perfeito! Para finalizar, você gostaria de receber a localização da nossa loja para trazer seu console?\nDigite:\n1. Sim\n2. Não"
-        elif message_text in ["2", "encerrar"]:
-            user_states[user_id] = {'state': 'start'}
-            return "Tudo bem, conversa encerrada. Se precisar de algo, é só me chamar. Obrigado!"
-        else:
-            return "Opção inválida. Por favor, digite '1' para continuar ou '2' para encerrar."
-
-    if state['state'] == 'awaiting_games':
-        game_map = {'1': 'GTA V', '2': 'PES 2013', '3': 'PES 2018', '4': 'FIFA 19'}
-        selected_games = []
-        choices = message_text.replace(" ", "").split(',')
-        for choice in choices:
-            if choice in game_map:
-                selected_games.append(game_map[choice])
-        
-        user_states[user_id]['jogos'] = ', '.join(selected_games)
-        user_states[user_id]['state'] = 'awaiting_location'
-        return "Perfeito! Já tenho todas as informações. Para finalizar, você gostaria de receber a localização da nossa loja para trazer seu console?\nDigite:\n1. Sim\n2. Não"
-
-    if state['state'] == 'awaiting_location':
-        location_map = {'1': 'Sim', '2': 'Não'}
-        if message_text in location_map:
-            user_states[user_id]['localizacao'] = location_map[message_text]
-            
-            save_lead(
-                user_states[user_id].get('nome'),
-                user_states[user_id].get('email'),
-                user_states[user_id].get('modelo'),
-                user_states[user_id].get('ano'),
-                user_states[user_id].get('armazenamento'),
-                user_states[user_id].get('jogos'),
-                user_states[user_id].get('localizacao')
-            )
-
-            resumo = (
-                f"\n\n*Resumo do Pedido*\n"
-                f"Nome: {user_states[user_id].get('nome')}\n"
-                f"E-mail: {user_states[user_id].get('email')}\n"
-                f"Modelo do Xbox: {user_states[user_id].get('modelo')}\n"
-                f"Ano de Fabricação: {user_states[user_id].get('ano')}\n"
-                f"Armazenamento: {user_states[user_id].get('armazenamento')}\n"
-                f"Jogos Selecionados: {user_states[user_id].get('jogos')}\n"
-                f"Localização Solicitada: {user_states[user_id].get('localizacao')}"
-            )
-
-            user_states[user_id] = {'state': 'start'}
-            
-            if location_map[message_text] == 'Sim':
-                return resumo + "\n\nAqui está o link para a localização da nossa loja no Google Maps: [Link da sua localização]. Estamos ansiosos para te receber! Se precisar de algo mais, é só me chamar."
-            else:
-                return resumo + "\n\nOk. Se precisar de algo, estarei aqui para ajudar. Obrigado!"
-        else:
-            return "Opção inválida. Por favor, escolha 1 ou 2."
-
-    return "Desculpe, não entendi. Tente digitar 'olá' para recomeçar."
-    
-def send_whatsapp_message(to_number, text_message):
-    headers = {
-        "Authorization": f"Bearer {META_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to_number,
-        "type": "text",
-        "text": {
-            "body": text_message
-        }
-    }
-    requests.post(f"https://graph.facebook.com/v15.0/{PHONE_NUMBER_ID}/messages", headers=headers, json=payload)
-
-# --- ROTAS DO FLASK ---
-@app.route('/whatsapp_webhook', methods=['GET', 'POST'])
+# --- ROTA PARA O WEBHOOK DO WHATSAPP (TWILIO) ---
+@server.route("/whatsapp_webhook", methods=["POST"])
 def whatsapp_webhook():
-    print("--- Webhook recebido ---")
     try:
-        if request.method == 'GET':
-            print("Webhook verification (GET) request received.")
-            mode = request.args.get('hub.mode')
-            token = request.args.get('hub.verify_token')
-            challenge = request.args.get('hub.challenge')
-            
-            if mode == 'subscribe' and token == VERIFY_TOKEN:
-                print("Webhook verified successfully.")
-                return challenge, 200
-            else:
-                print("Webhook verification failed.")
-                return 'Webhook verification failed', 403
+        incoming_msg = request.values.get('Body', '').lower().strip()
+        sender_phone_number = request.values.get('From', '')
 
-        elif request.method == 'POST':
-            if request.form:
-                print("Webhook detectado como Twilio.")
-                message_info = request.form
-                from_number = message_info.get('From')
-                message_text = message_info.get('Body')
-                response_type = 'twilio'
-            elif request.json and "entry" in request.json:
-                print("Webhook detectado como Meta (WhatsApp Cloud API).")
-                data = request.json
-                if "messages" in data["entry"][0]["changes"][0]["value"]:
-                    message_info = data["entry"][0]["changes"][0]["value"]["messages"][0]
-                    from_number = message_info["from"]
-                    if "text" in message_info:
-                        message_text = message_info["text"]["body"]
-                        print(f"Mensagem de texto recebida: {message_text}")
-                    else:
-                        message_text = None
-                        print(f"Mensagem de tipo '{message_info.get('type')}' recebida. Ignorando...")
+        print(f"\n--- Nova Mensagem ---")
+        print(f"Origem: {sender_phone_number}")
+        print(f"Mensagem recebida: {incoming_msg}")
+
+        resp = MessagingResponse()
+        current_status = get_lead_status(sender_phone_number)
+        
+        # O estado finalizado é tratado de forma separada no final do código
+        if current_status == 'FINALIZADO':
+            response_message = "Parece que a nossa conversa foi finalizada. Para começar um novo atendimento, digite 'oi'."
+            
+            # Se a mensagem for 'oi', salva um novo lead e inicia o fluxo
+            if incoming_msg == 'oi':
+                response_message = "Olá! Bem-vindo ao Xbox Repair. Para começar, por favor, informe seu nome."
+                lead_data = {
+                    'timestamp': datetime.now().isoformat(),
+                    'nome': 'Não informado',
+                    'email': 'Não informado',
+                    'telefone': sender_phone_number,
+                    'endereco': 'Não informado',
+                    'modelo': 'Não informado',
+                    'ano': 0,
+                    'tipo_de_armazenamento': 'Não informado',
+                    'jogos_selecionados': 'Não informado',
+                    'status': 'AGUARDANDO_NOME'
+                }
+                save_lead_to_db(lead_data)
+        
+        elif incoming_msg == '9':
+            response_message = "O atendimento foi cancelado. Obrigado por entrar em contato! Você pode começar um novo atendimento a qualquer momento digitando 'oi'."
+            update_lead_status_and_data(sender_phone_number, 'FINALIZADO')
+            
+        elif current_status == 'AGUARDANDO_NOME':
+            # Recebeu o nome, agora pede o email e o chama pelo nome
+            nome = incoming_msg.capitalize()
+            response_message = f"Certo, {nome}! Agora, por favor, me informe seu email. [9 - Sair]"
+            update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_EMAIL', {'nome': nome})
+            
+        elif current_status == 'AGUARDANDO_EMAIL':
+            # Recebeu o email, agora pede o endereço
+            lead_info = get_lead_info(sender_phone_number)
+            if lead_info is not None:
+                nome = lead_info['nome']
+                response_message = f"Obrigado, {nome}! Qual é o seu endereço completo? [9 - Sair]"
+                update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_ENDERECO', {'email': incoming_msg})
+            else:
+                response_message = "Desculpe, não consegui encontrar seu nome. Por favor, reinicie a conversa digitando 'oi'."
+                update_lead_status_and_data(sender_phone_number, 'FINALIZADO')
+
+        elif current_status == 'AGUARDANDO_ENDERECO':
+            # Recebeu o endereço, agora pede o modelo
+            response_message = "Obrigado! Qual é o modelo do seu Xbox? Por favor, digite o número da opção:\n1 - Fat\n2 - Slim\n3 - Super Slim\n\n[9 - Sair]"
+            update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_MODELO', {'endereco': incoming_msg.capitalize()})
+            
+        elif current_status == 'AGUARDANDO_MODELO':
+            # Recebeu o modelo, agora pede o ano
+            modelos_mapeamento = {
+                '1': 'Fat',
+                '2': 'Slim',
+                '3': 'Super Slim'
+            }
+            if incoming_msg in modelos_mapeamento:
+                modelo_selecionado = modelos_mapeamento[incoming_msg]
+                response_message = f"Entendido. Qual o ano de fabricação do seu console? (Ex: 2008, 2012). [9 - Sair]"
+                update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_ANO', {'modelo': modelo_selecionado})
+            else:
+                response_message = "Por favor, digite um dos números válidos: 1, 2 ou 3."
+
+        elif current_status == 'AGUARDANDO_ANO':
+            # Recebeu o ano, valida e pede o tipo de armazenamento
+            try:
+                ano = int(incoming_msg)
+                
+                response_message = ""
+                
+                if not 2007 <= ano <= 2015:
+                    response_message = "Por favor, digite um ano entre 2007 e 2015."
+                elif ano == 2015:
+                    response_message = "Atenção: Consoles fabricados em 2015 não podem ser desbloqueados definitivamente."
+                    
+                if 2007 <= ano <= 2015:
+                    response_message += "\n\nO seu console tem armazenamento?\n1- HD Interno\n2- HD Externo\n3- Pendrive 16gb+\n4- Não tenho\n\n[9 - Sair]"
+                    update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_ARMAZENAMENTO', {'ano': ano})
                 else:
-                    message_text = None
-                    from_number = None
-                    print("Mensagem de status ou sem conteúdo. Ignorando.")
+                    pass
+            except ValueError:
+                response_message = "Por favor, digite apenas o ano de fabricação (Ex: 2010)."
                 
-                response_type = 'meta'
+        elif current_status == 'AGUARDANDO_ARMAZENAMENTO':
+            # Recebeu a opção de armazenamento
+            if incoming_msg == '1':
+                response_message = "Escolha 3 jogos da lista abaixo, separados por vírgula:\n1. GTA\n2. NFS\n3. FIFA 19\n4. PES 2018\n\n[9 - Sair]"
+                update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_JOGOS', {'tipo_de_armazenamento': 'HD Interno'})
+            elif incoming_msg == '2':
+                response_message = "Escolha 3 jogos da lista abaixo, separados por vírgula:\n1. GTA\n2. NFS\n3. FIFA 19\n4. PES 2018\n\n[9 - Sair]"
+                update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_JOGOS', {'tipo_de_armazenamento': 'HD Externo'})
+            elif incoming_msg == '3':
+                response_message = "Escolha 3 jogos da lista abaixo, separados por vírgula:\n1. GTA\n2. NFS\n3. FIFA 19\n4. PES 2018\n\n[9 - Sair]"
+                update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_JOGOS', {'tipo_de_armazenamento': 'Pendrive 16gb+'})
+            elif incoming_msg == '4':
+                response_message = "Atenção: Sem armazenamento, não será possível jogar nem copiar os jogos. Deseja continuar o atendimento?\n1 - Sim\n2 - Não\n\n[9 - Sair]"
+                update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_CONTINUAR', {'tipo_de_armazenamento': 'Não tenho'})
             else:
-                print("Formato de webhook desconhecido ou vazio.")
-                return "OK", 200
+                response_message = "Opção inválida. Por favor, digite um número de 1 a 4."
+        
+        elif current_status == 'AGUARDANDO_CONTINUAR':
+            lead_info = get_lead_info(sender_phone_number)
+            if incoming_msg == '1':
+                # Se o problema for 'Não tenho', pula a escolha de jogos
+                if lead_info is not None and lead_info['tipo_de_armazenamento'] == 'Não tenho':
+                    response_message = "Tudo certo! Você deseja receber o link da nossa localização? (1 - Sim / 2 - Não)\n\n[9 - Sair]"
+                    update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_LOCALIZACAO', {'jogos_selecionados': 'Nenhum, pois não tem armazenamento'})
+                else:
+                    response_message = "Tudo bem, vamos prosseguir. Escolha 3 jogos da lista abaixo, separados por vírgula:\n1. GTA\n2. NFS\n3. FIFA 19\n4. PES 2018\n\n[9 - Sair]"
+                    update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_JOGOS')
+            elif incoming_msg == '2':
+                response_message = "Entendido. Obrigado por usar nosso serviço! Seu atendimento foi registrado. Qualquer dúvida, pode nos contatar."
+                update_lead_status_and_data(sender_phone_number, 'FINALIZADO')
+            else:
+                response_message = "Opção inválida. Por favor, digite '1' para continuar ou '2' para finalizar."
 
-            if not from_number:
-                return "OK", 200
+        elif current_status == 'AGUARDANDO_JOGOS':
+            # Recebeu a lista de jogos, valida e pede a localização
+            jogos_mapeamento = {
+                '1': 'GTA',
+                '2': 'NFS',
+                '3': 'FIFA 19',
+                '4': 'PES 2018'
+            }
+            jogos_escolhidos_numeros = [j.strip() for j in incoming_msg.split(',')]
             
-            if message_text:
-                bot_response = get_bot_response(from_number, message_text)
-                print(f"Resposta do bot gerada: {bot_response}")
+            jogos_selecionados = []
+            jogos_invalidos = False
+            for numero in jogos_escolhidos_numeros:
+                if numero in jogos_mapeamento:
+                    jogos_selecionados.append(jogos_mapeamento[numero])
+                else:
+                    jogos_invalidos = True
+                    break
+            
+            if len(jogos_escolhidos_numeros) != 3 or jogos_invalidos:
+                response_message = "Seleção inválida. Por favor, escolha 3 jogos da lista e separe-os por vírgula."
             else:
-                return "OK", 200
-                
-            if response_type == 'twilio':
-                resp = MessagingResponse()
-                resp.message(bot_response)
+                response_message = "Tudo certo! Você deseja receber o link da nossa localização? (1 - Sim / 2 - Não)\n\n[9 - Sair]"
+                update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_LOCALIZACAO', {'jogos_selecionados': ', '.join(jogos_selecionados)})
+
+        elif current_status == 'AGUARDANDO_LOCALIZACAO':
+            # Recebeu a escolha da localização e finaliza a conversa
+            lead_data = get_lead_info(sender_phone_number)
+            
+            final_message = ""
+            if incoming_msg == '1':
+                final_message = "Obrigado! Aqui está o link da nossa localização: [Link da Localização](https://maps.app.goo.gl/9TqC6k5Q5pYqD4gA8)\n"
+                update_lead_status_and_data(sender_phone_number, 'FINALIZADO')
+            elif incoming_msg == '2':
+                final_message = "Entendido. Obrigado por usar nosso serviço! Seu atendimento foi registrado.\n"
+                update_lead_status_and_data(sender_phone_number, 'FINALIZADO')
+            else:
+                response_message = "Opção inválida. Por favor, digite '1' para Sim ou '2' para Não."
+                resp.message(response_message)
+                print(f"Resposta gerada: {response_message}\n")
                 return str(resp)
-            else:
-                send_whatsapp_message(from_number, bot_response)
-                return "OK", 200
+            
+            # Adiciona o resumo dos dados
+            if lead_data is not None:
+                summary = (
+                    f"--- Resumo do seu Atendimento ---\n"
+                    f"ID: {lead_data.get('id')}\n"
+                    f"Nome: {lead_data['nome']}\n"
+                    f"Email: {lead_data['email']}\n"
+                    f"Endereço: {lead_data['endereco']}\n"
+                    f"Modelo do Xbox: {lead_data['modelo']}\n"
+                    f"Ano de Fabricação: {lead_data['ano']}\n"
+                    f"Armazenamento: {lead_data['tipo_de_armazenamento']}\n"
+                    f"Jogos Selecionados: {lead_data['jogos_selecionados']}\n"
+                    f"--- Fim do Resumo ---"
+                )
+                final_message += summary
+            
+            response_message = final_message
         
+        else:
+            response_message = "Olá! Bem-vindo ao Xbox Repair. Para começar, por favor, informe seu nome. [9 - Sair]"
+            lead_data = {
+                'timestamp': datetime.now().isoformat(),
+                'nome': 'Não informado',
+                'email': 'Não informado',
+                'telefone': sender_phone_number,
+                'endereco': 'Não informado',
+                'modelo': 'Não informado',
+                'ano': 0,
+                'tipo_de_armazenamento': 'Não informado',
+                'jogos_selecionados': 'Não informado',
+                'status': 'AGUARDANDO_NOME'
+            }
+            save_lead_to_db(lead_data)
+
+        resp.message(response_message)
+        print(f"Resposta gerada: {response_message}\n")
+
+        return str(resp)
+
     except Exception as e:
-        print(f"\n--- ERRO CRÍTICO ---")
-        print(f"Erro no processamento do webhook: {e}")
-        error_message = "Desculpe, um erro inesperado ocorreu. Por favor, tente novamente mais tarde."
-        
-        try:
-            if 'response_type' in locals() and response_type == 'twilio':
-                resp = MessagingResponse()
-                resp.message(error_message)
-                return str(resp), 500
-            elif 'from_number' in locals():
-                send_whatsapp_message(from_number, error_message)
-        except Exception as e_inner:
-            print(f"Erro ao enviar mensagem de erro: {e_inner}")
+        print(f"Erro ao processar a mensagem do Twilio: {e}")
+        return "Erro interno no servidor", 200
 
-        return "Internal Server Error", 500
+# Layout principal que inclui a barra de navegação e o conteúdo dinâmico do Dash
+app.layout = html.Div([
+    dcc.Location(id='url', refresh=False),
+    dbc.NavbarSimple(
+        children=[
+            dbc.NavItem(dcc.Link("Dashboard", href="/", className="nav-link")),
+            dbc.NavItem(dcc.Link("Leads", href="/leads", className="nav-link")),
+            dbc.NavItem(dcc.Link("Status", href="/status", className="nav-link")),
+        ],
+        brand="Xbox 360 Repair",
+        brand_href="/",
+        color="dark",
+        dark=True,
+    ),
+    html.Div(id='page-content')
+])
 
+# Callback para gerenciar a navegação entre as páginas do Dash
+@app.callback(
+    Output('page-content', 'children'),
+    Input('url', 'pathname')
+)
+def display_page(pathname):
+    if pathname == '/status':
+        return status_page.layout
+    elif pathname == '/leads':
+        return leads_page.layout
+    else:
+        return dashboard_page.layout
 
 if __name__ == '__main__':
-    create_table()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(debug=True, port=8050)
