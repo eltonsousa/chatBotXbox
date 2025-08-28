@@ -1,0 +1,14 @@
+{
+    "modelos_xbox": {
+        "1": "Fat",
+        "2": "Slim",
+        "3": "Super Slim"
+    },
+    "jogos": {
+        "1": "GTA",
+        "2": "NFS",
+        "3": "FIFA 19",
+        "4": "PES 2018",
+        "5": "SPIDER MAN"
+    }
+}
