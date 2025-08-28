@@ -26,10 +26,10 @@ def whatsapp_webhook():
         current_status = get_lead_status(sender_phone_number)
         
         if current_status == 'FINALIZADO':
-            response_message = "Parece que a nossa conversa foi finalizada. Para começar um novo atendimento, digite 'oi'."
+            response_message = "Parece que a nossa conversa foi finalizada. Para começar um novo atendimento, digite 'oi'. 👋"
             
             if incoming_msg == 'oi':
-                response_message = "Olá! Bem-vindo ao Xbox Repair. Para começar, por favor, informe seu nome."
+                response_message = "Olá! 👋 Bem-vindo ao Da Hora Games!🎮 Para começar, por favor, informe seu nome:"
                 lead_data = {
                     'timestamp': datetime.now().isoformat(),
                     'nome': 'Não informado',
@@ -45,27 +45,25 @@ def whatsapp_webhook():
                 save_lead_to_db(lead_data)
         
         elif incoming_msg == '9':
-            response_message = "O atendimento foi cancelado. Obrigado por entrar em contato! Você pode começar um novo atendimento a qualquer momento digitando 'oi'."
+            response_message = "O atendimento foi cancelado. Obrigado por entrar em contato! Você pode começar um novo atendimento a qualquer momento digitando 'oi'. 👋"
             update_lead_status_and_data(sender_phone_number, 'FINALIZADO')
             
         elif current_status == 'AGUARDANDO_NOME':
-            # Nova validação para o nome
             if not re.match(r'^[a-zA-Z\s]+$', incoming_msg):
-                response_message = "Nome inválido. Por favor, digite seu nome usando apenas letras e espaços."
+                response_message = "Nome inválido. Por favor, digite seu nome usando apenas letras e espaços. ✍️"
             else:
                 nome = incoming_msg.capitalize()
-                response_message = f"Certo, {nome}! Agora, por favor, me informe seu email. [9 - Sair]"
+                response_message = f"Certo, {nome}! Agora, por favor, me informe seu email: [9 - Sair]"
                 update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_EMAIL', {'nome': nome})
             
         elif current_status == 'AGUARDANDO_EMAIL':
-            # Nova validação para o email
             if not re.match(r'[^@]+@[^@]+\.[^@]+', incoming_msg):
-                response_message = "Email inválido. Por favor, digite um email no formato correto (ex: seu.nome@dominio.com)."
+                response_message = "Email inválido. Por favor, digite um email no formato correto (ex: seu.nome@dominio.com). 📧"
             else:
                 lead_info = get_lead_info(sender_phone_number)
                 if lead_info is not None:
                     nome = lead_info['nome']
-                    response_message = f"Obrigado, {nome}! Qual é o seu endereço completo? [9 - Sair]"
+                    response_message = f"Obrigado, {nome}! Qual é o seu endereço completo? 🏡 [9 - Sair]"
                     update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_ENDERECO', {'email': incoming_msg})
                 else:
                     response_message = "Desculpe, não consegui encontrar seu nome. Por favor, reinicie a conversa digitando 'oi'."
@@ -93,17 +91,17 @@ def whatsapp_webhook():
                 response_message = ""
                 
                 if not 2007 <= ano <= 2015:
-                    response_message = "Por favor, digite um ano entre 2007 e 2015."
+                    response_message = "Por favor, digite um ano entre 2007 e 2015. 🗓️"
                 elif ano == 2015:
-                    response_message = "Atenção: Consoles fabricados em 2015 não podem ser desbloqueados definitivamente."
+                    response_message = "Atenção: Consoles fabricados em 2015 não podem ser desbloqueados definitivamente! ⚠️"
                     
                 if 2007 <= ano <= 2015:
-                    response_message += "\n\nO seu console tem armazenamento?\n1- HD Interno\n2- HD Externo\n3- Pendrive 16gb+\n4- Não tenho\n\n[9 - Sair]"
+                    response_message += "\n\nO seu console tem Armazenamento?\n1- HD Interno\n2- HD Externo\n3- Pendrive 16gb+\n4- Não tenho\n\n[9 - Sair]"
                     update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_ARMAZENAMENTO', {'ano': ano})
                 else:
                     pass
             except ValueError:
-                response_message = "Por favor, digite apenas o ano de fabricação (Ex: 2010)."
+                response_message = "Por favor, digite apenas o ano de fabricação (Ex: 2010). 🔢"
                 
         elif current_status == 'AGUARDANDO_ARMAZENAMENTO':
             jogos_options = ""
@@ -111,19 +109,19 @@ def whatsapp_webhook():
                 jogos_options += f"{num}. {jogo}\n"
 
             if incoming_msg == '1':
-                response_message = f"Escolha 3 jogos da lista abaixo, separados por vírgula:\n{jogos_options}\n[9 - Sair]"
+                response_message = f"Escolha 15 jogos da lista abaixo, separados por vírgula:\n{jogos_options}\n[9 - Sair]"
                 update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_JOGOS', {'tipo_de_armazenamento': 'HD Interno'})
             elif incoming_msg == '2':
-                response_message = f"Escolha 3 jogos da lista abaixo, separados por vírgula:\n{jogos_options}\n[9 - Sair]"
+                response_message = f"Escolha 15 jogos da lista abaixo, separados por vírgula:\n{jogos_options}\n[9 - Sair]"
                 update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_JOGOS', {'tipo_de_armazenamento': 'HD Externo'})
             elif incoming_msg == '3':
-                response_message = f"Escolha 3 jogos da lista abaixo, separados por vírgula:\n{jogos_options}\n[9 - Sair]"
+                response_message = f"Escolha 15 jogos da lista abaixo, separados por vírgula:\n{jogos_options}\n[9 - Sair]"
                 update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_JOGOS', {'tipo_de_armazenamento': 'Pendrive 16gb+'})
             elif incoming_msg == '4':
                 response_message = "Atenção: Sem armazenamento, não será possível jogar nem copiar os jogos. Deseja continuar o atendimento?\n1 - Sim\n2 - Não\n\n[9 - Sair]"
                 update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_CONTINUAR', {'tipo_de_armazenamento': 'Não tenho'})
             else:
-                response_message = "Opção inválida. Por favor, digite um número de 1 a 4."
+                response_message = "Opção inválida. Por favor, digite um número de 1 a 4. ❌"
         
         elif current_status == 'AGUARDANDO_CONTINUAR':
             lead_info = get_lead_info(sender_phone_number)
@@ -135,13 +133,13 @@ def whatsapp_webhook():
                     jogos_options = ""
                     for num, jogo in content_data.get("jogos", {}).items():
                         jogos_options += f"{num}. {jogo}\n"
-                    response_message = f"Tudo bem, vamos prosseguir. Escolha 3 jogos da lista abaixo, separados por vírgula:\n{jogos_options}\n[9 - Sair]"
+                    response_message = f"Tudo bem, vamos prosseguir. Escolha 15 jogos da lista abaixo, separados por vírgula:\n{jogos_options}\n[9 - Sair]"
                     update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_JOGOS')
             elif incoming_msg == '2':
-                response_message = "Entendido. Obrigado por usar nosso serviço! Seu atendimento foi registrado. Qualquer dúvida, pode nos contatar."
+                response_message = "Entendido. Obrigado por usar nosso serviço! Seu atendimento foi registrado. Qualquer dúvida, pode nos contatar. 👍"
                 update_lead_status_and_data(sender_phone_number, 'FINALIZADO')
             else:
-                response_message = "Opção inválida. Por favor, digite '1' para continuar ou '2' para finalizar."
+                response_message = "Opção inválida. Por favor, digite '1' para continuar ou '2' para finalizar. ❌"
 
         elif current_status == 'AGUARDANDO_JOGOS':
             jogos_mapeamento = content_data.get("jogos", {})
@@ -156,10 +154,11 @@ def whatsapp_webhook():
                     jogos_invalidos = True
                     break
             
-            if len(jogos_escolhidos_numeros) != 3 or jogos_invalidos:
-                response_message = "Seleção inválida. Por favor, escolha 3 jogos da lista e separe-os por vírgula."
+            # Validação ajustada para 15 jogos
+            if len(jogos_escolhidos_numeros) != 15 or jogos_invalidos:
+                response_message = "Seleção inválida. Por favor, escolha 15 jogos da lista e separe-os por vírgula."
             else:
-                response_message = "Tudo certo! Você deseja receber o link da nossa localização? (1 - Sim / 2 - Não)\n\n[9 - Sair]"
+                response_message = "Tudo certo! ✅ Você deseja receber o link da nossa localização? (1 - Sim / 2 - Não)\n\n[9 - Sair]"
                 update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_LOCALIZACAO', {'jogos_selecionados': ', '.join(jogos_selecionados)})
 
         elif current_status == 'AGUARDANDO_LOCALIZACAO':
@@ -167,18 +166,26 @@ def whatsapp_webhook():
             
             final_message = ""
             if incoming_msg == '1':
-                final_message = "Obrigado! Aqui está o link da nossa localização: [Link da Localização](https://maps.app.goo.gl/9TqC6k5Q5pYqD4gA8)\n"
+                final_message = "Obrigado! Aqui está o link da nossa localização: https://maps.app.goo.gl/G4HYUhf9JqWPkJoT7\n"
                 update_lead_status_and_data(sender_phone_number, 'FINALIZADO')
             elif incoming_msg == '2':
-                final_message = "Entendido. Obrigado por usar nosso serviço! Seu atendimento foi registrado.\n"
+                final_message = "Entendido. Obrigado por usar nosso serviço! Seu atendimento foi registrado. 👋\n"
                 update_lead_status_and_data(sender_phone_number, 'FINALIZADO')
             else:
-                response_message = "Opção inválida. Por favor, digite '1' para Sim ou '2' para Não."
+                response_message = "Opção inválida. Por favor, digite '1' para Sim ou '2' para Não. ❌"
                 resp.message(response_message)
                 print(f"Resposta gerada: {response_message}\n")
                 return str(resp)
             
             if lead_data is not None:
+                jogos_lista_formatada = ""
+                if lead_data['jogos_selecionados'] == 'Nenhum, pois não tem armazenamento':
+                    jogos_lista_formatada = lead_data['jogos_selecionados']
+                else:
+                    jogos = lead_data['jogos_selecionados'].split(', ')
+                    for jogo in jogos:
+                        jogos_lista_formatada += f"• {jogo}\n"
+
                 summary = (
                     f"--- Resumo do seu Atendimento ---\n"
                     f"ID: {lead_data.get('id')}\n"
@@ -188,7 +195,7 @@ def whatsapp_webhook():
                     f"Modelo do Xbox: {lead_data['modelo']}\n"
                     f"Ano de Fabricação: {lead_data['ano']}\n"
                     f"Armazenamento: {lead_data['tipo_de_armazenamento']}\n"
-                    f"Jogos Selecionados: {lead_data['jogos_selecionados']}\n"
+                    f"Jogos Selecionados:\n{jogos_lista_formatada}\n"
                     f"--- Fim do Resumo ---"
                 )
                 final_message += summary
@@ -196,7 +203,7 @@ def whatsapp_webhook():
             response_message = final_message
         
         else:
-            response_message = "Olá! Bem-vindo ao Xbox Repair. Para começar, por favor, informe seu nome. [9 - Sair]"
+            response_message = "Olá! 👋 Bem-vindo ao Da Hora Games! Para começar, por favor, informe seu nome. 🎮"
             lead_data = {
                 'timestamp': datetime.now().isoformat(),
                 'nome': 'Não informado',
