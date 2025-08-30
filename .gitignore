@@ -1,1 +1,7 @@
+# Arquivos temporários Python
+__pycache__/
+*.pyc
+
+# Virtualenv
+venv/
 .env
