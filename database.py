@@ -1,7 +1,9 @@
 import sqlite3
 import pandas as pd
+import json
 
 def init_db():
+    """Inicializa o banco de dados e cria a tabela 'leads'."""
     conn = sqlite3.connect('chatbot.db')
     cursor = conn.cursor()
     cursor.execute('''
@@ -23,6 +25,7 @@ def init_db():
     conn.close()
 
 def save_lead_to_db(lead_data):
+    """Salva um novo lead no banco de dados."""
     conn = sqlite3.connect('chatbot.db')
     cursor = conn.cursor()
     cursor.execute('''
@@ -43,17 +46,14 @@ def save_lead_to_db(lead_data):
     conn.commit()
     conn.close()
 
-def update_lead_status_and_data(phone_number, new_status, data_to_update=None):
+def update_lead_status_and_data(phone_number, new_status, new_data=None):
+    """Atualiza o status e outros dados de um lead existente."""
     conn = sqlite3.connect('chatbot.db')
     cursor = conn.cursor()
-
-    if data_to_update:
-        update_str = ", ".join([f"{key} = ?" for key in data_to_update.keys()])
-        values = list(data_to_update.values())
-        values.append(new_status)
-        values.append(phone_number)
-        values.append(phone_number)
-        
+    
+    if new_data:
+        update_str = ', '.join([f"{key} = ?" for key in new_data.keys()])
+        values = list(new_data.values()) + [new_status, phone_number, phone_number]
         cursor.execute(f'''
             UPDATE leads
             SET {update_str}, status = ?
@@ -80,6 +80,7 @@ def update_lead_status_and_data(phone_number, new_status, data_to_update=None):
     conn.close()
 
 def get_lead_status(phone_number):
+    """Retorna o status atual do lead, ou None se não existir."""
     conn = sqlite3.connect('chatbot.db')
     cursor = conn.cursor()
     cursor.execute("SELECT status FROM leads WHERE telefone = ? ORDER BY timestamp DESC LIMIT 1", (phone_number,))
@@ -87,16 +88,29 @@ def get_lead_status(phone_number):
     conn.close()
     return result[0] if result else None
 
-def get_leads_count(phone_number):
-    conn = sqlite3.connect('chatbot.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM leads WHERE telefone = ?", (phone_number,))
-    count = cursor.fetchone()[0]
-    conn.close()
-    return count
-
 def get_lead_info(phone_number):
+    """Retorna as informações do lead como um dicionário, ou None se não existir."""
     conn = sqlite3.connect('chatbot.db')
     df = pd.read_sql_query("SELECT * FROM leads WHERE telefone = ? ORDER BY timestamp DESC LIMIT 1", conn, params=(phone_number,))
     conn.close()
-    return df.iloc[0] if not df.empty else None
+    
+    if not df.empty:
+        return df.iloc[0].to_dict()
+    else:
+        return None
+
+def get_data_from_db():
+    """Função centralizada para ler dados da tabela 'leads' do banco de dados."""
+    conn = sqlite3.connect('chatbot.db')
+    try:
+        df = pd.read_sql_query("SELECT * FROM leads", conn)
+    except pd.io.sql.DatabaseError:
+        df = pd.DataFrame(columns=['id', 'timestamp', 'nome', 'email', 'telefone', 'endereco', 'modelo', 'ano', 'tipo_de_armazenamento', 'jogos_selecionados', 'status'])
+    finally:
+        conn.close()
+
+    if not df.empty and 'timestamp' in df.columns:
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df['data_dia'] = df['timestamp'].dt.date
+
+    return df

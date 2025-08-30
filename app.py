@@ -11,7 +11,6 @@ from flask import request
 BS_THEME = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
 FA_ICONS = "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
 
-# O nome do argumento foi corrigido aqui
 app = dash.Dash(__name__, external_stylesheets=[BS_THEME, FA_ICONS], suppress_callback_exceptions=True)
 server = app.server
 
@@ -43,15 +42,17 @@ app.layout = html.Div([
 # Callback para gerenciar a navegação entre as páginas do Dash
 @app.callback(
     Output('page-content', 'children'),
-    Input('url', 'pathname')
+    [Input('url', 'pathname')]
 )
 def display_page(pathname):
-    if pathname == '/status':
-        return status_page.layout
-    elif pathname == '/leads':
+    if pathname == '/leads':
         return leads_page.layout
+    elif pathname == '/status':
+        return status_page.layout
     else:
         return dashboard_page.layout
 
+# Não chame as funções de callback aqui. O Dash as executará automaticamente.
+
 if __name__ == '__main__':
-    app.run(debug=True, port=8050)
+    app.run(debug=True)
