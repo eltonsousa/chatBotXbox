@@ -2,32 +2,13 @@ import dash
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
-import sqlite3
 from dash import dcc, html, callback_context
 from dash.dependencies import Input, Output
 from datetime import datetime, date
 import plotly.graph_objects as go
+from utils import get_data_from_db # Linha alterada: importa a função do novo arquivo
 
 # --- FUNÇÕES ---
-def get_data_from_db():
-    conn_dash = sqlite3.connect('chatbot.db')
-    try:
-        # Tenta ler os dados da tabela
-        df = pd.read_sql_query("SELECT * FROM leads", conn_dash)
-    except pd.io.sql.DatabaseError:
-        # Se a tabela não existir, retorna um DataFrame vazio
-        df = pd.DataFrame(columns=['timestamp', 'nome', 'telefone', 'modelo', 'ano', 'problema', 'jogos_solicitados'])
-    finally:
-        conn_dash.close()
-
-    if 'localizacao_solicitada' in df.columns:
-        df = df.drop(columns=['localizacao_solicitada'])
-
-    if not df.empty and 'timestamp' in df.columns:
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        df['data_dia'] = df['timestamp'].dt.date
-
-    return df
 
 def create_funnel_graph(total_leads, modelos_count):
     df_funnel = pd.DataFrame(dict(
@@ -67,7 +48,7 @@ def create_dashboard_elements(df, start_date=None, end_date=None, selected_year=
         df_modelos = pd.DataFrame(columns=['modelo', 'count'])
         df_leads_por_dia = pd.DataFrame(columns=['data_dia', 'count'])
         df_anos = pd.DataFrame(columns=['ano', 'count'])
-        df_jogos = pd.DataFrame(columns=['jogos_solicitados', 'count'])
+        df_jogos = pd.DataFrame(columns=['jogos_selecionados', 'count']) # Linha corrigida
     else:
         total_leads = len(df_filtered)
         modelos_count = len(df_filtered.dropna(subset=['modelo']))
@@ -78,9 +59,9 @@ def create_dashboard_elements(df, start_date=None, end_date=None, selected_year=
         leads_recentes = len(df_filtered[df_filtered['timestamp'] >= ultimos_7_dias])
 
         try:
-            df_jogos = df_filtered['jogos_solicitados'].value_counts().reset_index(name='count')
+            df_jogos = df_filtered['jogos_selecionados'].value_counts().reset_index(name='count')
         except KeyError:
-            df_jogos = pd.DataFrame(columns=['jogos_solicitados', 'count'])
+            df_jogos = pd.DataFrame(columns=['jogos_selecionados', 'count'])
 
         df_modelos = df_filtered['modelo'].value_counts().reset_index(name='count')
         df_leads_por_dia = df_filtered.groupby('data_dia').size().reset_index(name='count')
@@ -113,9 +94,9 @@ def create_dashboard_elements(df, start_date=None, end_date=None, selected_year=
     )
     fig_jogos = px.bar(
         df_jogos,
-        x='jogos_solicitados',
+        x='jogos_selecionados', # Linha corrigida
         y='count',
-        labels={'jogos_solicitados': 'Jogo', 'count': 'Solicitações'},
+        labels={'jogos_selecionados': 'Jogo', 'count': 'Solicitações'},
         title='Jogos Mais Solicitados',
         color_discrete_sequence=px.colors.sequential.Plasma
     )
@@ -270,10 +251,8 @@ layout = dbc.Container([
 def update_dashboard(n, start_date, end_date, clickData):
     triggered_id = callback_context.triggered[0]['prop_id'].split('.')[0]
 
-    # Carrega todos os dados do banco
     df_updated = get_data_from_db()
 
-    # Se o disparo for do dcc.Interval, não aplica o filtro de data para mostrar o total de leads
     if triggered_id == 'interval-component':
         start_date = None
         end_date = None

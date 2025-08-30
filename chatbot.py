@@ -141,6 +141,8 @@ def whatsapp_webhook():
             else:
                 response_message = "Opção inválida. Por favor, digite '1' para continuar ou '2' para finalizar. ❌"
 
+        # ... (código anterior) ...
+
         elif current_status == 'AGUARDANDO_JOGOS':
             jogos_mapeamento = content_data.get("jogos", {})
             jogos_escolhidos_numeros = [j.strip() for j in incoming_msg.split(',')]
@@ -154,12 +156,14 @@ def whatsapp_webhook():
                     jogos_invalidos = True
                     break
             
-            # Validação ajustada para 15 jogos
-            if len(jogos_escolhidos_numeros) != 15 or jogos_invalidos:
-                response_message = "Seleção inválida. Por favor, escolha 15 jogos da lista e separe-os por vírgula."
+            # Validação ajustada para permitir de 1 a 15 jogos
+            if len(jogos_escolhidos_numeros) > 15 or len(jogos_escolhidos_numeros) < 1 or jogos_invalidos:
+                response_message = "Seleção inválida. Por favor, escolha entre 1 e 15 jogos da lista e separe-os por vírgula."
             else:
                 response_message = "Tudo certo! ✅ Você deseja receber o link da nossa localização? (1 - Sim / 2 - Não)\n\n[9 - Sair]"
                 update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_LOCALIZACAO', {'jogos_selecionados': ', '.join(jogos_selecionados)})
+
+        # ... (código posterior) ...
 
         elif current_status == 'AGUARDANDO_LOCALIZACAO':
             lead_data = get_lead_info(sender_phone_number)
