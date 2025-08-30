@@ -24,30 +24,31 @@ def whatsapp_webhook():
 
         resp = MessagingResponse()
         current_status = get_lead_status(sender_phone_number)
+        response_message = ""
+
+        # Lógica para tratar o comando de saída
+        if incoming_msg == '9':
+            update_lead_status_and_data(sender_phone_number, 'FINALIZADO', {})
+            response_message = "Atendimento finalizado. Para começar um novo, digite 'oi'."
         
-        if current_status == 'FINALIZADO':
-            response_message = "Parece que a nossa conversa foi finalizada. Para começar um novo atendimento, digite 'oi'. 👋"
-            
-            if incoming_msg == 'oi':
-                response_message = "Olá! 👋 Bem-vindo ao Da Hora Games!🎮 Para começar, por favor, informe seu nome:"
-                lead_data = {
-                    'timestamp': datetime.now().isoformat(),
-                    'nome': 'Não informado',
-                    'email': 'Não informado',
-                    'telefone': sender_phone_number,
-                    'endereco': 'Não informado',
-                    'modelo': 'Não informado',
-                    'ano': 0,
-                    'tipo_de_armazenamento': 'Não informado',
-                    'jogos_selecionados': 'Não informado',
-                    'status': 'AGUARDANDO_NOME'
-                }
-                save_lead_to_db(lead_data)
-        
-        elif incoming_msg == '9':
-            response_message = "O atendimento foi cancelado. Obrigado por entrar em contato! Você pode começar um novo atendimento a qualquer momento digitando 'oi'. 👋"
-            update_lead_status_and_data(sender_phone_number, 'FINALIZADO')
-            
+        # Lógica para iniciar ou reiniciar a conversa
+        elif incoming_msg == 'oi' and current_status != 'AGUARDANDO_NOME':
+            response_message = "Olá! 👋 Bem-vindo ao Da Hora Games! Para começar, por favor, informe seu nome. 🎮"
+            lead_data = {
+                'timestamp': datetime.now().isoformat(),
+                'nome': 'Não informado',
+                'email': 'Não informado',
+                'telefone': sender_phone_number,
+                'endereco': 'Não informado',
+                'modelo': 'Não informado',
+                'ano': 0,
+                'tipo_de_armazenamento': 'Não informado',
+                'jogos_selecionados': 'Não informado',
+                'status': 'AGUARDANDO_NOME'
+            }
+            save_lead_to_db(lead_data)
+
+        # Lógica para cada estado da conversa
         elif current_status == 'AGUARDANDO_NOME':
             if not re.match(r'^[a-zA-Z\s]+$', incoming_msg):
                 response_message = "Nome inválido. Por favor, digite seu nome usando apenas letras e espaços. ✍️"
@@ -55,7 +56,7 @@ def whatsapp_webhook():
                 nome = incoming_msg.capitalize()
                 response_message = f"Certo, {nome}! Agora, por favor, me informe seu email: [9 - Sair]"
                 update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_EMAIL', {'nome': nome})
-            
+        
         elif current_status == 'AGUARDANDO_EMAIL':
             if not re.match(r'[^@]+@[^@]+\.[^@]+', incoming_msg):
                 response_message = "Email inválido. Por favor, digite um email no formato correto (ex: seu.nome@dominio.com). 📧"
@@ -88,7 +89,6 @@ def whatsapp_webhook():
         elif current_status == 'AGUARDANDO_ANO':
             try:
                 ano = int(incoming_msg)
-                response_message = ""
                 
                 if not 2007 <= ano <= 2015:
                     response_message = "Por favor, digite um ano entre 2007 e 2015. 🗓️"
@@ -98,8 +98,7 @@ def whatsapp_webhook():
                 if 2007 <= ano <= 2015:
                     response_message += "\n\nO seu console tem Armazenamento?\n1- HD Interno\n2- HD Externo\n3- Pendrive 16gb+\n4- Não tenho\n\n[9 - Sair]"
                     update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_ARMAZENAMENTO', {'ano': ano})
-                else:
-                    pass
+                
             except ValueError:
                 response_message = "Por favor, digite apenas o ano de fabricação (Ex: 2010). 🔢"
                 
@@ -141,8 +140,6 @@ def whatsapp_webhook():
             else:
                 response_message = "Opção inválida. Por favor, digite '1' para continuar ou '2' para finalizar. ❌"
 
-        # ... (código anterior) ...
-
         elif current_status == 'AGUARDANDO_JOGOS':
             jogos_mapeamento = content_data.get("jogos", {})
             jogos_escolhidos_numeros = [j.strip() for j in incoming_msg.split(',')]
@@ -162,8 +159,6 @@ def whatsapp_webhook():
             else:
                 response_message = "Tudo certo! ✅ Você deseja receber o link da nossa localização? (1 - Sim / 2 - Não)\n\n[9 - Sair]"
                 update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_LOCALIZACAO', {'jogos_selecionados': ', '.join(jogos_selecionados)})
-
-        # ... (código posterior) ...
 
         elif current_status == 'AGUARDANDO_LOCALIZACAO':
             lead_data = get_lead_info(sender_phone_number)
@@ -206,27 +201,34 @@ def whatsapp_webhook():
             
             response_message = final_message
         
-        else:
-            response_message = "Olá! 👋 Bem-vindo ao Da Hora Games! Para começar, por favor, informe seu nome. 🎮"
-            lead_data = {
-                'timestamp': datetime.now().isoformat(),
-                'nome': 'Não informado',
-                'email': 'Não informado',
-                'telefone': sender_phone_number,
-                'endereco': 'Não informado',
-                'modelo': 'Não informado',
-                'ano': 0,
-                'tipo_de_armazenamento': 'Não informado',
-                'jogos_selecionados': 'Não informado',
-                'status': 'AGUARDANDO_NOME'
-            }
-            save_lead_to_db(lead_data)
+        # Caso o status seja FINALIZADO (evita criar novo lead)
+        elif current_status == 'FINALIZADO':
+            response_message = "Parece que a nossa conversa foi finalizada. Para começar um novo atendimento, digite 'oi'. 👋"
+
+        # Lógica para estados não mapeados (primeira conversa ou erro)
+        elif not response_message:
+            if incoming_msg == 'oi':
+                response_message = "Olá! 👋 Bem-vindo ao Da Hora Games! Para começar, por favor, informe seu nome. 🎮"
+                lead_data = {
+                    'timestamp': datetime.now().isoformat(),
+                    'nome': 'Não informado',
+                    'email': 'Não informado',
+                    'telefone': sender_phone_number,
+                    'endereco': 'Não informado',
+                    'modelo': 'Não informado',
+                    'ano': 0,
+                    'tipo_de_armazenamento': 'Não informado',
+                    'jogos_selecionados': 'Não informado',
+                    'status': 'AGUARDANDO_NOME'
+                }
+                save_lead_to_db(lead_data)
+            else:
+                response_message = "Desculpe, não entendi. Por favor, digite 'oi' para começar."
 
         resp.message(response_message)
         print(f"Resposta gerada: {response_message}\n")
-
         return str(resp)
 
     except Exception as e:
-        print(f"Erro ao processar a mensagem do Twilio: {e}")
-        return "Erro interno no servidor", 200
+        print(f"Ocorreu um erro no webhook: {e}")
+        return "Erro interno. Por favor, tente novamente mais tarde."
