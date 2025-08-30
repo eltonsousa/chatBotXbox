@@ -7,13 +7,17 @@ def init_db():
     # Cria a tabela de leads se ela não existir
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS leads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT,
             nome TEXT,
+            email TEXT,
             telefone TEXT,
+            endereco TEXT,
             modelo TEXT,
             ano INTEGER,
-            problema TEXT,
-            jogos_solicitados TEXT
+            tipo_de_armazenamento TEXT,
+            jogos_selecionados TEXT,
+            status TEXT
         )
     ''')
     
