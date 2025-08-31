@@ -1,6 +1,12 @@
 # 1. Navegue até a pasta do projeto
 
-cd C:\apps-dev\chatBotXbox
+# Criar um ambiente virtual
+
+No terminal, dentro da pasta do seu projeto, rode:
+
+python -m venv venv
+
+Isso vai criar a pasta venv/ com tudo que o ambiente virtual precisa.
 
 # 2. Ative o ambiente virtual
 
