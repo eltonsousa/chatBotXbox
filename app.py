@@ -8,6 +8,7 @@ from chatbot import whatsapp_webhook
 from flask import request
 
 # Use o link direto para a folha de estilo do Bootstrap
+#BS_THEME = dbc.themes.DARKLY
 BS_THEME = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
 FA_ICONS = "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
 
