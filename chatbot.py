@@ -2,7 +2,7 @@ import dash
 from flask import request
 from twilio.twiml.messaging_response import MessagingResponse
 from datetime import datetime
-from database import get_lead_status, update_lead_status_and_data, get_lead_info, save_lead_to_db
+from database import get_lead_status, save_or_update_lead, get_lead_info
 import json
 import re
 import nltk
@@ -19,9 +19,28 @@ except FileNotFoundError:
     print("Erro: O arquivo 'content.json' não foi encontrado. Certifique-se de que ele está na mesma pasta que o 'chatbot.py'.")
     content_data = {}
 
+# --- CONSTANTES ---
+# Definindo as strings de status como constantes para melhor legibilidade e manutenção.
+class Status:
+    INICIADO = 'INICIADO'
+    AGUARDANDO_NOME = 'AGUARDANDO_NOME'
+    AGUARDANDO_EMAIL = 'AGUARDANDO_EMAIL'
+    AGUARDANDO_ENDERECO = 'AGUARDANDO_ENDERECO'
+    AGUARDANDO_MODELO = 'AGUARDANDO_MODELO'
+    AGUARDANDO_ANO = 'AGUARDANDO_ANO'
+    AGUARDANDO_ARMAZENAMENTO = 'AGUARDANDO_ARMAZENAMENTO'
+    AGUARDANDO_JOGOS = 'AGUARDANDO_JOGOS'
+    AGUARDANDO_LOCALIZACAO_OU_FINALIZAR = 'AGUARDANDO_LOCALIZACAO_OU_FINALIZAR'
+    AGUARDANDO_CONTINUAR_OU_ENCERRAR = 'AGUARDANDO_CONTINUAR_OU_ENCERRAR'
+    AGUARDANDO_DESBLOQUEIO_SEM_JOGOS = 'AGUARDANDO_DESBLOQUEIO_SEM_JOGOS'
+    FINALIZADO = 'FINALIZADO'
+    # Novo status para tratar o retorno do usuário
+    AGUARDANDO_OPCAO_RETORNO = 'AGUARDANDO_OPCAO_RETORNO'
+
 # --- IA - Treinamento e Predição de Intenções ---
 
 # Defina as intenções e as frases de exemplo
+# Frases de finalização foram removidas para evitar conflito com dados de entrada.
 INTENT_DATA = [
     ("oi", "saudacao"),
     ("ola", "saudacao"),
@@ -31,474 +50,412 @@ INTENT_DATA = [
     ("oi tudo bem", "saudacao"),
     ("tudo bem", "saudacao"),
     
-    ("quero finalizar", "finalizar_conversa"),
-    ("nao quero mais", "finalizar_conversa"),
-    ("9", "finalizar_conversa"),
-    ("finalizar", "finalizar_conversa"),
-    ("sair", "finalizar_conversa"),
-    ("tchau", "finalizar_conversa"),
-    ("finalizado", "finalizar_conversa"),
-    ("digite 9", "finalizar_conversa"),
-    ("acabou", "finalizar_conversa"),
-    ("vou sair", "finalizar_conversa"),
-
-    ("preciso de ajuda", "comando_ajuda"),
+    ("quero ajuda", "comando_ajuda"),
     ("ajuda", "comando_ajuda"),
-    ("o que eu faco agora", "comando_ajuda"),
-    ("socorro", "comando_ajuda"),
     
     ("voltar", "comando_voltar"),
-    ("volta", "comando_voltar"),
     ("quero voltar", "comando_voltar"),
-    ("volta uma etapa", "comando_voltar"),
-    ("passo anterior", "comando_voltar"),
-    ("voltar uma", "comando_voltar"),
     
-    ("meu nome eh joao", "informar_nome"),
-    ("joao", "informar_nome"),
-    ("sou o joao", "informar_nome"),
-    ("me chamo joao", "informar_nome"),
-    ("meu nome é André", "informar_nome"),
-    ("me chamo Ana", "informar_nome"),
-    ("Maria", "informar_nome"),
-    ("Luiz Carlos", "informar_nome"),
-    ("Pedro", "informar_nome"),
-    ("Ana", "informar_nome"),
-    ("elton", "informar_nome"),
-    ("sou elton", "informar_nome"),
-    ("jackson", "informar_nome"),
-    ("sou jackson", "informar_nome"),
-
-    ("meu email eh joao@teste.com", "informar_email"),
-    ("joao@teste.com", "informar_email"),
-    ("joao.teste@gmail.com", "informar_email"),
-    ("o email é contato@dahoragames.com", "informar_email"),
-    ("sou o email joao@hotmail.com", "informar_email"),
-
-    ("meu endereco eh rua a, 123", "informar_endereco"),
-    ("rua a, 123", "informar_endereco"),
-    ("av b, 456", "informar_endereco"),
-    ("moro na rua c, 789", "informar_endereco"),
-    ("meu endereço é Rua do Comércio, 100", "informar_endereco"),
+    ("meu nome eh", "informar_nome"),
+    ("meu nome é", "informar_nome"),
+    ("me chamo", "informar_nome"),
+    ("é", "informar_nome"),
+    ("eh", "informar_nome"),
     
-    ("meu xbox eh fat", "informar_modelo"),
+    ("email", "informar_email"),
+    ("meu email eh", "informar_email"),
+    ("meu email e", "informar_email"),
+
+    ("endereco", "informar_endereco"),
+    ("rua", "informar_endereco"),
+    ("meu endereco eh", "informar_endereco"),
+
+    ("xbox", "informar_modelo"),
+    ("fat", "informar_modelo"),
     ("slim", "informar_modelo"),
     ("super slim", "informar_modelo"),
-    ("xbox 360 slim", "informar_modelo"),
-    ("modelo fat", "informar_modelo"),
-
-    ("ano 2010", "informar_ano"),
-    ("fabricado em 2012", "informar_ano"),
-    ("2010", "informar_ano"),
-    ("2012", "informar_ano"),
-    ("o ano de fabricacao e 2007", "informar_ano"),
-    ("2013", "informar_ano"),
-    ("o ano e 2008", "informar_ano"),
-    ("é de 2011", "informar_ano"),
-    ("e de 2014", "informar_ano"),
-    ("ano e 2015", "informar_ano"),
-    ("é 2010", "informar_ano"),
-    ("o meu e 2009", "informar_ano"),
-    ("meu console é de 2012", "informar_ano"),
-    ("fabricado em 2013", "informar_ano"),
-
-    ("tenho hd interno", "informar_armazenamento"),
-    ("hd externo", "informar_armazenamento"),
-    ("pendrive", "informar_armazenamento"),
-    ("nao tenho armazenamento", "informar_armazenamento"),
-    ("armazenamento hd interno", "informar_armazenamento"),
-    ("uso um pen drive", "informar_armazenamento"),
     
-    ("1, 2, 3", "selecao_jogos"),
-    ("1, 2, 25", "selecao_jogos"),
-    ("quero o jogo 1", "selecao_jogos"),
-    ("gta v e fifa", "selecao_jogos"),
-    ("selecionar os jogos", "selecao_jogos"),
-    ("escolho os jogos 1, 14, 20", "selecao_jogos"),
-    ("os numeros sao 5,10,15", "selecao_jogos"),
-    ("3, 7, 11, 22", "selecao_jogos"),
-    ("1, 5", "selecao_jogos"),
-    ("2, 8, 14", "selecao_jogos"),
-    ("3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25", "selecao_jogos"),
-    ("1,3,5,7", "selecao_jogos"),
-    ("2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24", "selecao_jogos"),
+    ("ano", "informar_ano"),
+    ("2010", "informar_ano"),
+    ("2007", "informar_ano"),
 
-    ("sim", "confirmar_localizacao"),
-    ("nao", "confirmar_localizacao"),
-    ("não", "confirmar_localizacao"),
-    ("quero o link", "confirmar_localizacao"),
-    ("sim quero", "confirmar_localizacao"),
-    ("nao, obrigado", "confirmar_localizacao"),
-    ("não, obrigado", "confirmar_localizacao")
-
+    ("hd", "informar_armazenamento"),
+    ("armazenamento", "informar_armazenamento"),
+    
+    ("queria jogos", "informar_jogos"),
+    ("jogos", "informar_jogos"),
+    ("jogos", "informar_jogos"),
 ]
 
-# Treina o modelo de intenção
-def train_intent_model():
-    model_path = 'intent_model.joblib'
-    vectorizer_path = 'vectorizer.joblib'
+# Treinamento do modelo
+corpus = [item[0].lower() for item in INTENT_DATA]
+labels = [item[1] for item in INTENT_DATA]
 
-    if os.path.exists(model_path) and os.path.exists(vectorizer_path):
-        return joblib.load(model_path), joblib.load(vectorizer_path)
+vectorizer = TfidfVectorizer(token_pattern=r'(?u)\b\w+\b', min_df=1, ngram_range=(1, 3))
+X = vectorizer.fit_transform(corpus)
 
-    corpus = [item[0] for item in INTENT_DATA]
-    labels = [item[1] for item in INTENT_DATA]
+model = LinearSVC()
+model.fit(X, labels)
 
-    vectorizer = TfidfVectorizer(ngram_range=(1, 2), lowercase=True)
-    X = vectorizer.fit_transform(corpus)
-    y = labels
+# Salva o modelo e o vetorizador
+joblib.dump(model, 'intent_model.joblib')
+joblib.dump(vectorizer, 'vectorizer.joblib')
 
-    model = LinearSVC(max_iter=5000)
-    model.fit(X, y)
+# Carrega o modelo treinado (para uso em produção)
+try:
+    vectorizer = joblib.load('vectorizer.joblib')
+    model = joblib.load('intent_model.joblib')
+except FileNotFoundError:
+    print("Aviso: Modelos de IA não encontrados. O chatbot usará a lógica base.")
+    vectorizer = None
+    model = None
 
-    joblib.dump(model, model_path)
-    joblib.dump(vectorizer, vectorizer_path)
+def get_intent(text):
+    """
+    Prediz a intenção da mensagem do usuário usando o modelo treinado.
+    Retorna 'nao_entendi' se o modelo não estiver carregado ou não conseguir classificar.
+    """
+    if vectorizer and model:
+        text_vectorized = vectorizer.transform([text.lower()])
+        return model.predict(text_vectorized)[0]
+    return 'nao_entendi'
 
-    return model, vectorizer
+# --- FLUXO DE CONVERSA ---
 
-# Carrega o modelo de intenção
-intent_model, intent_vectorizer = train_intent_model()
+def get_menu_message():
+    """Gera a mensagem do menu principal."""
+    menu_message = content_data.get('menu', "Menu não encontrado.")
+    return menu_message
 
-# Função para prever a intenção de uma nova mensagem
-def get_intent(message):
-    message_vector = intent_vectorizer.transform([message.lower()])
-    prediction = intent_model.predict(message_vector)
-    return prediction[0]
+def get_modelos_message():
+    """Gera a mensagem para a seleção do modelo."""
+    modelos_text = content_data.get('texto_modelos', "Modelos não encontrados.")
+    modelos_lista = content_data.get('modelos_xbox', {})
+    
+    modelos_string = "\n".join([f"  {num} - {nome}" for num, nome in modelos_lista.items()])
+    return f"{modelos_text}\n\n{modelos_string}\n\nResponda com o número do modelo."
 
-# --- Funções de Manuseio da Conversa ---
+def get_armazenamento_message():
+    """Gera a mensagem para a seleção do armazenamento."""
+    armazenamento_text = content_data.get('perguntas', {}).get('pergunta_armazenamento', 'Qual o tipo de armazenamento do seu console?')
+    opcoes_lista = content_data.get('opcoes_armazenamento', {})
+    
+    opcoes_string = "\n".join([f"  {num} - {nome}" for num, nome in opcoes_lista.items()])
+    return f"{armazenamento_text}\n\n{opcoes_string}\n\nResponda com o número do tipo de armazenamento."
 
-def start_new_conversation(sender_phone_number):
-    """Inicia uma nova conversa e cria um lead."""
-    response_message = "Olá! 👋 Bem-vindo ao Da Hora Games! Para começar, por favor, informe seu nome. 🎮"
-    lead_data = {
-        'timestamp': datetime.now().isoformat(),
-        'nome': 'Não informado',
-        'email': 'Não informado',
-        'telefone': sender_phone_number,
-        'endereco': 'Não informado',
-        'modelo': 'Não informado',
-        'ano': 0,
-        'tipo_de_armazenamento': 'Não informado',
-        'jogos_selecionados': 'Não informado',
-        'status': 'AGUARDANDO_NOME'
-    }
-    save_lead_to_db(lead_data)
-    return response_message
+def get_jogos_message():
+    """Gera a mensagem para a seleção de jogos."""
+    jogos_text = content_data.get('texto_jogos', "Jogos não encontrados.")
+    jogos_lista = content_data.get('jogos', {})
+    
+    jogos_string = "\n".join([f"  {num} - {nome}" for num, nome in jogos_lista.items()])
+    return f"{jogos_text}\n\n{jogos_string}\n\nVocê pode selecionar mais de um jogo, separando por vírgula. Ex: 1, 5, 8"
 
 def handle_awaiting_name(incoming_msg, sender_phone_number):
-    """Trata a mensagem quando o chatbot está aguardando o nome do usuário."""
-    # Extrai a última palavra da mensagem como o nome
-    partes_da_frase = incoming_msg.split()
-    nome_candidato = partes_da_frase[-1]
-    
-    if not re.match(r'^[a-zA-Z\u00C0-\u017F\s-]+$', nome_candidato):
-        return "Nome inválido. Por favor, digite seu nome usando apenas letras, espaços e hífens. ✍️"
-    else:
-        nome = nome_candidato.title()
-        update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_EMAIL', {'nome': nome})
-        return f"Certo, {nome}! Agora, por favor, me informe seu email: [9 - Sair]"
+    """
+    Trata a mensagem quando o status é AGUARDANDO_NOME.
+    Salva o nome e muda o status para AGUARDANDO_EMAIL.
+    """
+    nome = incoming_msg.strip()
+    save_or_update_lead({'telefone': sender_phone_number, 'status': Status.AGUARDANDO_EMAIL, 'nome': nome})
+    return f"Obrigado, {nome}! Qual é o seu email?"
 
 def handle_awaiting_email(incoming_msg, sender_phone_number):
-    """Trata a mensagem quando o chatbot está aguardando o email do usuário."""
-    if not re.match(r'[^@]+@[^@]+\.[^@]+', incoming_msg):
-        return "Email inválido. Por favor, digite um email no formato correto (ex: seu.nome@dominio.com). 📧"
+    """
+    Trata a mensagem quando o status é AGUARDANDO_EMAIL.
+    Valida o email, salva e muda o status.
+    """
+    email_regex = r'^\S+@\S+\.\S+$'
+    if re.match(email_regex, incoming_msg.strip()):
+        save_or_update_lead({'telefone': sender_phone_number, 'status': Status.AGUARDANDO_ENDERECO, 'email': incoming_msg.strip()})
+        return content_data.get('perguntas', {}).get('pergunta_endereco', 'Qual é o seu endereço?')
     else:
-        lead_info = get_lead_info(sender_phone_number)
-        if lead_info:
-            nome = lead_info.get('nome', 'amigo')
-            update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_ENDERECO', {'email': incoming_msg})
-            return f"Obrigado, {nome}! Qual é o seu endereço completo? 🏡 [9 - Sair]"
-        else:
-            update_lead_status_and_data(sender_phone_number, 'FINALIZADO')
-            return "Desculpe, não consegui encontrar seus dados. Por favor, reinicie a conversa digitando 'oi'."
+        return content_data.get('erros', {}).get('erro_email', 'Email inválido. Por favor, digite um email válido.')
 
 def handle_awaiting_address(incoming_msg, sender_phone_number):
-    """Trata a mensagem quando o chatbot está aguardando o endereço do usuário."""
-    response_message = "Obrigado! Qual é o modelo do seu Xbox? Por favor, digite o número da opção:\n"
-    for num, modelo in content_data.get("modelos_xbox", {}).items():
-        response_message += f"{num} - {modelo}\n"
-    response_message += "\n[9 - Sair]"
-    update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_MODELO', {'endereco': incoming_msg.capitalize()})
-    return response_message
+    """
+    Trata a mensagem quando o status é AGUARDANDO_ENDERECO.
+    Salva o endereço e muda o status.
+    """
+    endereco = incoming_msg.strip()
+    save_or_update_lead({'telefone': sender_phone_number, 'status': Status.AGUARDANDO_MODELO, 'endereco': endereco})
+    return get_modelos_message()
 
 def handle_awaiting_model(incoming_msg, sender_phone_number):
-    """Trata a mensagem quando o chatbot está aguardando o modelo do Xbox."""
-    modelos_mapeamento = content_data.get("modelos_xbox", {})
-    
-    # Mapeamento reverso para traduzir o nome do modelo para o número
-    modelos_reverso = {v.lower(): k for k, v in modelos_mapeamento.items()}
-    
-    modelo_selecionado = None
-    
-    # 1. Tenta encontrar a opção por número
-    if incoming_msg in modelos_mapeamento:
-        modelo_selecionado = modelos_mapeamento[incoming_msg]
-        
-    # 2. Tenta encontrar a opção por nome (usando a IA)
-    elif get_intent(incoming_msg) == 'informar_modelo':
-        # Tenta encontrar o nome do modelo no mapeamento reverso
-        for modelo_nome, modelo_numero in modelos_reverso.items():
-            if modelo_nome in incoming_msg:
-                modelo_selecionado = modelos_mapeamento[modelo_numero]
-                break
-
-    if modelo_selecionado:
-        update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_ANO', {'modelo': modelo_selecionado})
-        return f"Entendido. Qual o ano de fabricação do seu console? (Ex: 2008, 2012). [9 - Sair]"
+    """
+    Trata a mensagem quando o status é AGUARDANDO_MODELO.
+    Valida o modelo, salva e muda o status.
+    """
+    modelos_lista = content_data.get('modelos_xbox', {})
+    if incoming_msg.strip() in modelos_lista:
+        modelo = modelos_lista[incoming_msg.strip()]
+        save_or_update_lead({'telefone': sender_phone_number, 'status': Status.AGUARDANDO_ANO, 'modelo': modelo})
+        return content_data.get('perguntas', {}).get('pergunta_ano', 'Qual o ano de fabricação do console? (Ex: 2010)')
     else:
-        return "Por favor, digite um dos números válidos: 1, 2 ou 3."
+        return content_data.get('erros', {}).get('erro_modelo', 'Modelo inválido. Por favor, selecione um modelo da lista.')
 
 def handle_awaiting_year(incoming_msg, sender_phone_number):
-    """Trata a mensagem quando o chatbot está aguardando o ano de fabricação."""
+    """
+    Trata a mensagem quando o status é AGUARDANDO_ANO.
+    Valida o ano, salva e muda o status.
+    """
     try:
-        # Usa uma expressão regular para encontrar um número de 4 dígitos na mensagem
-        match = re.search(r'\b(19|20)\d{2}\b', incoming_msg)
-        
-        if not match:
-            return "Por favor, digite apenas o ano de fabricação (Ex: 2010). 🔢"
-        
-        ano = int(match.group(0))
-        response_message = ""
-        
-        if not 2007 <= ano <= 2015:
-            return "Por favor, digite um ano entre 2007 e 2015. 🗓️"
-        
+        ano = int(incoming_msg.strip())
         if ano == 2015:
-            response_message += "Atenção: Consoles fabricados em 2015 não podem ser desbloqueados definitivamente! ⚠️"
-        
-        response_message += "\n\nO seu console tem Armazenamento?\n1- HD Interno\n2- HD Externo\n3- Pendrive 16gb+\n4- Não tenho\n\n[9 - Sair]"
-        update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_ARMAZENAMENTO', {'ano': ano})
-        return response_message
+            # Consoles de 2015 não permitem jogos, então a seleção de armazenamento é pulada.
+            save_or_update_lead({'telefone': sender_phone_number, 'status': Status.AGUARDANDO_CONTINUAR_OU_ENCERRAR, 'ano': ano})
+            return content_data.get('perguntas', {}).get('pergunta_continuar_ou_encerrar', 'Atenção: Consoles fabricados em 2015 não permitem o desbloqueio definitivo. Deseja continuar com a solicitação ou encerrar? (Sim/Não)')
+        elif 2007 <= ano <= 2015:
+            save_or_update_lead({'telefone': sender_phone_number, 'status': Status.AGUARDANDO_ARMAZENAMENTO, 'ano': ano})
+            return get_armazenamento_message()
+        else:
+            return content_data.get('erros', {}).get('erro_ano', 'Ano inválido. Por favor, digite um ano entre 2007 e 2015.')
     except ValueError:
-        return "Por favor, digite apenas o ano de fabricação (Ex: 2010). 🔢"
+        return content_data.get('erros', {}).get('erro_ano', 'Ano inválido. Por favor, digite um ano entre 2007 e 2015.')
 
 def handle_awaiting_storage(incoming_msg, sender_phone_number):
-    """Trata a mensagem quando o chatbot está aguardando o tipo de armazenamento."""
-    jogos_options = ""
-    for num, jogo in content_data.get("jogos", {}).items():
-        jogos_options += f"{num}. {jogo}\n"
-
-    # Dicionário de mapeamento para traduzir frases para números
-    armazenamento_mapeamento = {
-        'hd interno': '1',
-        'hd externo': '2',
-        'pendrive': '3',
-        'não tenho': '4'
-    }
-
-    # Verifica se a mensagem é um número válido
-    if incoming_msg in ['1', '2', '3', '4']:
-        escolha = incoming_msg
-    # Se não for número, tenta encontrar a opção na frase
+    """
+    Trata a mensagem quando o status é AGUARDANDO_ARMAZENAMENTO.
+    Valida a seleção de armazenamento, incluindo a nova opção '4 - Não tenho'.
+    """
+    opcoes_armazenamento = content_data.get('opcoes_armazenamento', {})
+    
+    if incoming_msg.strip() in ['1', '2', '3']:
+        armazenamento = opcoes_armazenamento[incoming_msg.strip()]
+        save_or_update_lead({'telefone': sender_phone_number, 'status': Status.AGUARDANDO_JOGOS, 'tipo_de_armazenamento': armazenamento})
+        return get_jogos_message()
+    elif incoming_msg.strip() == '4' or incoming_msg.strip().lower() in ['nao tenho', 'não tenho', 'sem hd', 'sem armazenamento']:
+        save_or_update_lead({'telefone': sender_phone_number, 'status': Status.AGUARDANDO_DESBLOQUEIO_SEM_JOGOS, 'tipo_de_armazenamento': 'Não tenho'})
+        return content_data.get('perguntas', {}).get('pergunta_desbloqueio_sem_jogos', 'Aviso: Não poderá rodar jogos no seu xbox sem armazenamento! Deseja continuar somente com o desbloqueio?\n1 - Sim\n2 - Não')
     else:
-        encontrado = False
-        for termo, numero in armazenamento_mapeamento.items():
-            if termo in incoming_msg:
-                escolha = numero
-                encontrado = True
-                break
-        if not encontrado:
-            return "Opção inválida. Por favor, digite um número de 1 a 4. ❌"
+        return content_data.get('erros', {}).get('erro_armazenamento', 'Opção de armazenamento inválida. Por favor, selecione uma das opções de 1 a 4.')
 
-    # Lógica de resposta com base na escolha
-    if escolha == '1':
-        update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_JOGOS', {'tipo_de_armazenamento': 'HD Interno'})
-        return f"Escolha 15 jogos da lista abaixo, separados por vírgula:\n{jogos_options}\n[9 - Sair]"
-    elif escolha == '2':
-        update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_JOGOS', {'tipo_de_armazenamento': 'HD Externo'})
-        return f"Escolha 15 jogos da lista abaixo, separados por vírgula:\n{jogos_options}\n[9 - Sair]"
-    elif escolha == '3':
-        update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_JOGOS', {'tipo_de_armazenamento': 'Pendrive 16gb+'})
-        return f"Escolha 15 jogos da lista abaixo, separados por vírgula:\n{jogos_options}\n[9 - Sair]"
-    elif escolha == '4':
-        update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_CONTINUAR', {'tipo_de_armazenamento': 'Não tenho'})
-        return "Atenção: Sem armazenamento, não será possível jogar nem copiar os jogos. Deseja continuar o atendimento?\n1 - Sim\n2 - Não\n\n[9 - Sair]"
+def handle_awaiting_desbloqueio_sem_jogos(incoming_msg, sender_phone_number):
+    """
+    Trata a mensagem após o usuário indicar que não tem armazenamento.
+    Adiciona mais variações para 'sim' e 'não'.
+    """
+    # Lista de opções válidas para "Sim"
+    valid_sim = ['1', 'sim', 'Sim', 'yes', 'sin', 'simm', 'SIM', 'SIN']
+    # Lista de opções válidas para "Não"
+    valid_nao = ['2', 'nao', 'não', 'Não', 'nop', 'not', 'NAO', 'NÃO', 'não quero']
+    
+    incoming_msg_lower = incoming_msg.strip()
+    
+    if incoming_msg_lower in valid_sim:
+        save_or_update_lead({'telefone': sender_phone_number, 'status': Status.AGUARDANDO_LOCALIZACAO_OU_FINALIZAR})
+        return content_data.get('perguntas', {}).get('pergunta_localizacao_ou_finalizar', 'Ótimo, seu pedido foi registrado! Deseja que eu envie a localização da loja para você? (Sim/Não)')
+    elif incoming_msg_lower in valid_nao:
+        save_or_update_lead({'telefone': sender_phone_number, 'status': Status.FINALIZADO})
+        return content_data.get('respostas', {}).get('resposta_finalizada_encerrar', 'Entendido. Pedido encerrado. Em breve um de nossos consultores entrará em contato. Agradecemos o contato.')
     else:
-        return "Opção inválida. Por favor, digite um número de 1 a 4. ❌"
+        return content_data.get('erros', {}).get('erro_sim_nao', 'Resposta inválida. Por favor, digite "Sim" ou "Não".')
 
-def handle_awaiting_continue(incoming_msg, sender_phone_number):
-    """Trata a mensagem quando o chatbot pergunta se o usuário deseja continuar sem armazenamento."""
-    if incoming_msg == '1':
-        lead_info = get_lead_info(sender_phone_number)
-        if lead_info and lead_info['tipo_de_armazenamento'] == 'Não tenho':
-            update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_LOCALIZACAO', {'jogos_selecionados': 'Nenhum, pois não tem armazenamento'})
-            return "Tudo certo! Você deseja receber o link da nossa localização? (1 - Sim / 2 - Não)\n\n[9 - Sair]"
-    elif incoming_msg == '2':
-        update_lead_status_and_data(sender_phone_number, 'FINALIZADO')
-        return "Entendido. Obrigado por usar nosso serviço! Seu atendimento foi registrado. Qualquer dúvida, pode nos contatar. 👍"
+def handle_awaiting_continue_or_end(incoming_msg, sender_phone_number):
+    """
+    Trata a mensagem quando o status é AGUARDANDO_CONTINUAR_OU_ENCERRAR.
+    Finaliza o pedido ou direciona para a seleção de jogos (no caso do ano 2015).
+    """
+    # Lista de opções válidas para "Sim"
+    valid_sim = ['1', 'sim', 'Sim', 'yes', 'sin', 'simm', 'SIM', 'SIN']
+    # Lista de opções válidas para "Não"
+    valid_nao = ['2', 'nao', 'não', 'Não', 'nop', 'not', 'NAO', 'NÃO', 'não quero']
+    
+    incoming_msg_lower = incoming_msg.strip()
+    if incoming_msg_lower in valid_sim:
+        # Nova lógica: se continuar, vai para a seleção de armazenamento.
+        save_or_update_lead({'telefone': sender_phone_number, 'status': Status.AGUARDANDO_ARMAZENAMENTO})
+        return get_armazenamento_message()
+    elif incoming_msg_lower in valid_nao:
+        save_or_update_lead({'telefone': sender_phone_number, 'status': Status.FINALIZADO})
+        return content_data.get('respostas', {}).get('resposta_finalizada_encerrar', 'Entendido. Pedido encerrado. Em breve um de nossos consultores entrará em contato. Agradecemos o contato.')
     else:
-        return "Opção inválida. Por favor, digite '1' para continuar ou '2' para finalizar. ❌"
+        return content_data.get('erros', {}).get('erro_sim_nao', 'Resposta inválida. Por favor, digite "Sim" ou "Não".')
 
 def handle_awaiting_games(incoming_msg, sender_phone_number):
-    """Trata a mensagem quando o chatbot está aguardando a seleção de jogos."""
-    jogos_mapeamento = content_data.get("jogos", {})
-    jogos_escolhidos_numeros = [j.strip() for j in incoming_msg.split(',')]
+    """
+    Trata a mensagem quando o status é AGUARDANDO_JOGOS.
+    Valida a seleção de jogos e pergunta se o cliente deseja a localização.
+    """
+    jogos_lista = content_data.get('jogos', {})
+    jogos_escolhidos_numeros = [num.strip() for num in incoming_msg.split(',')]
     
-    jogos_selecionados = []
-    jogos_invalidos = False
-    for numero in jogos_escolhidos_numeros:
-        if numero in jogos_mapeamento:
-            jogos_selecionados.append(jogos_mapeamento[numero])
+    if len(jogos_escolhidos_numeros) > 15 or len(jogos_escolhidos_numeros) < 1:
+        return content_data.get('erros', {}).get('erro_jogos', 'Seleção inválida. Por favor, selecione de 1 a 15 jogos.')
+        
+    jogos_selecionados_nomes = []
+    
+    for num_jogo in jogos_escolhidos_numeros:
+        if num_jogo in jogos_lista:
+            jogos_selecionados_nomes.append(jogos_lista[num_jogo])
         else:
-            jogos_invalidos = True
-            break
+            return content_data.get('erros', {}).get('erro_jogos_invalido', 'Opção de jogo inválida. Por favor, selecione apenas números da lista.')
     
-    if len(jogos_escolhidos_numeros) > 15 or len(jogos_escolhidos_numeros) < 1 or jogos_invalidos:
-        return "Seleção inválida. Por favor, escolha entre 1 e 15 jogos da lista e separe-os por vírgula."
+    jogos_selecionados = ', '.join(jogos_selecionados_nomes)
+    
+    save_or_update_lead({'telefone': sender_phone_number, 'status': Status.AGUARDANDO_LOCALIZACAO_OU_FINALIZAR, 'jogos_selecionados': jogos_selecionados})
+    return content_data.get('perguntas', {}).get('pergunta_localizacao_ou_finalizar', 'Ótimo, seu pedido foi registrado! Deseja que eu envie a localização da loja para você? (Sim/Não)')
+
+def handle_awaiting_location_or_finalize(incoming_msg, sender_phone_number):
+    """
+    Trata a mensagem quando o status é AGUARDANDO_LOCALIZACAO_OU_FINALIZAR.
+    Finaliza o pedido, mostra um resumo e, opcionalmente, envia a localização.
+    """
+    lead_info = get_lead_info(sender_phone_number)
+    name = lead_info.get('nome', 'amigo')
+
+    valid_sim = ['sim', '1', 'yes', 'sin', 'simm', 'SIM', 'SIN']
+    valid_nao = ['nao', 'não', 'Não', '2', 'nop', 'not', 'NAO', 'NÃO', 'não quero']
+    
+    incoming_msg_lower = incoming_msg.strip()
+    save_or_update_lead({'telefone': sender_phone_number, 'status': Status.FINALIZADO})
+
+    # Verifica se o cliente não tem armazenamento e ajusta a mensagem de jogos
+    if lead_info.get('tipo_de_armazenamento') == 'Não tenho':
+        jogos_resumo = 'Somente desbloqueio'
     else:
-        update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_LOCALIZACAO', {'jogos_selecionados': ', '.join(jogos_selecionados)})
-        return "Tudo certo! ✅ Você deseja receber o link da nossa localização? (1 - Sim / 2 - Não)\n\n[9 - Sair]"
+        jogos_resumo = lead_info.get('jogos_selecionados', 'Nenhum selecionado')
 
-def handle_awaiting_location(incoming_msg, sender_phone_number):
-    """Trata a mensagem quando o chatbot está aguardando a decisão sobre a localização."""
-    lead_data = get_lead_info(sender_phone_number)
+    # Nova lógica para determinar o tipo de serviço
+    ano_console = lead_info.get('ano')
+    tipo_armazenamento = lead_info.get('tipo_de_armazenamento')
     
-    final_message = ""
-    
-    # Adiciona a lógica para verificar 'sim' ou 'nao'
-    if 'sim' in incoming_msg or '1' in incoming_msg:
-        final_message = "Obrigado! Aqui está o link da nossa localização: https://maps.app.goo.gl/G4HYUhf9JqWPkJoT7\n"
-        update_lead_status_and_data(sender_phone_number, 'FINALIZADO')
-    elif 'não' in incoming_msg or '2' in incoming_msg:
-        final_message = "Entendido. Obrigado por usar nosso serviço! Seu atendimento foi registrado. 👋\n"
-        update_lead_status_and_data(sender_phone_number, 'FINALIZADO')
+    if ano_console == 2015:
+        tipo_servico = "Somente Jogos"
+    elif tipo_armazenamento == 'Não tenho':
+        tipo_servico = "Somente Desbloqueio"
     else:
-        return "Opção inválida. Por favor, digite '1' para Sim ou '2' para Não. ❌"
+        tipo_servico = "Desbloqueio + Jogos"
 
-    if lead_data:
-        jogos_lista_formatada = ""
-        jogos_selecionados = lead_data.get('jogos_selecionados')
-        if jogos_selecionados == 'Nenhum, pois não tem armazenamento':
-            jogos_lista_formatada = jogos_selecionados
-        elif jogos_selecionados:
-            jogos = jogos_selecionados.split(', ')
-            for jogo in jogos:
-                jogos_lista_formatada += f"• {jogo}\n"
+    # Cria o resumo do pedido que será exibido em ambos os casos
+    summary_message = f"**Olá, {name}! Resumo do seu pedido:**\n\n"
+    summary_message += f"**Tipo de Serviço:** {tipo_servico}\n"
+    summary_message += f"**Nome:** {lead_info.get('nome', 'N/A')}\n"
+    summary_message += f"**Modelo:** {lead_info.get('modelo', 'N/A')}\n"
+    summary_message += f"**Ano:** {lead_info.get('ano', 'N/A')}\n"
+    summary_message += f"**Armazenamento:** {lead_info.get('tipo_de_armazenamento', 'N/A')}\n"
+    summary_message += f"**Jogos:** {jogos_resumo}\n\n"
 
-        summary = (
-            f"\n--- Resumo do seu Atendimento ---\n"
-            f"ID: {lead_data.get('id')}\n"
-            f"Nome: {lead_data.get('nome')}\n"
-            f"Email: {lead_data.get('email')}\n"
-            f"Endereço: {lead_data.get('endereco')}\n"
-            f"Modelo do Xbox: {lead_data.get('modelo')}\n"
-            f"Ano de Fabricação: {lead_data.get('ano')}\n"
-            f"Armazenamento: {lead_data.get('tipo_de_armazenamento')}\n"
-            f"Jogos Selecionados:\n{jogos_lista_formatada}\n"
-            f"--- Fim do Resumo ---"
-        )
-        final_message += summary
+    # Agora, trata a resposta do usuário e adiciona a mensagem final apropriada
+    if incoming_msg_lower in valid_sim:
+        final_message = f"{summary_message}{content_data.get('respostas', {}).get('resposta_finalizada_com_localizacao', 'Seu pedido foi finalizado. Em breve um de nossos consultores entrará em contato. Agradecemos o contato.')} {content_data.get('localizacao_loja', 'Nossa loja está localizada em [INSERIR ENDEREÇO DA LOJA AQUI].')}"
+        return final_message
+    elif incoming_msg_lower in valid_nao:
+        return f"{summary_message}{content_data.get('respostas', {}).get('resposta_finalizada', f'Entendido, {name}. Seu pedido foi finalizado. Em breve um de nossos consultores entrarão em contato para te ajudar. Agradecemos o contato.')}"
+    else:
+        return content_data.get('erros', {}).get('erro_sim_nao', 'Resposta inválida. Por favor, digite "Sim" ou "Não".')
+
+def handle_awaiting_return_option(incoming_msg, sender_phone_number):
+    """
+    Trata a resposta do usuário após ele ser reconhecido como cliente existente.
+    """
+    incoming_msg_lower = incoming_msg.strip().lower()
     
-    return final_message
+    # Lista de opções para ver o resumo
+    valid_resumo = ['2', 'resumo', 'ver resumo', 'ver o resumo', 'ver o anterior', 'anterior']
+    # Lista de opções para fazer um novo pedido
+    valid_novo = ['1', 'novo', 'novo pedido', 'novo orçamento', 'fazer novo']
+
+    if incoming_msg_lower in valid_novo:
+        # Se o usuário quer um novo pedido, reinicia o fluxo para a primeira etapa.
+        # Reseta os dados para evitar que o resumo mostre informações do pedido anterior.
+        save_or_update_lead({'telefone': sender_phone_number, 'status': Status.AGUARDANDO_NOME, 'modelo': 'Não informado', 'ano': 0, 'tipo_de_armazenamento': 'Não informado', 'jogos_selecionados': 'Não informado'})
+        return content_data.get('boas_vindas', 'Olá, tudo bem? Para começarmos, qual é o seu nome?')
+    elif incoming_msg_lower in valid_resumo:
+        # Se o usuário quer o resumo, chama a função de finalização que já gera o resumo.
+        # Passamos 'não' para que a localização não seja enviada novamente.
+        return handle_awaiting_location_or_finalize('não', sender_phone_number)
+    else:
+        # Resposta padrão para opções inválidas.
+        return "Desculpe, não entendi. Por favor, responda '1' para começar um novo orçamento, ou '2' para ver o resumo do anterior."
+
+
+# Dicionário de mapeamento de funções.
+status_handlers = {
+    Status.AGUARDANDO_NOME: handle_awaiting_name,
+    Status.AGUARDANDO_EMAIL: handle_awaiting_email,
+    Status.AGUARDANDO_ENDERECO: handle_awaiting_address,
+    Status.AGUARDANDO_MODELO: handle_awaiting_model,
+    Status.AGUARDANDO_ANO: handle_awaiting_year,
+    Status.AGUARDANDO_ARMAZENAMENTO: handle_awaiting_storage,
+    Status.AGUARDANDO_JOGOS: handle_awaiting_games,
+    Status.AGUARDANDO_LOCALIZACAO_OU_FINALIZAR: handle_awaiting_location_or_finalize,
+    Status.AGUARDANDO_CONTINUAR_OU_ENCERRAR: handle_awaiting_continue_or_end,
+    Status.AGUARDANDO_DESBLOQUEIO_SEM_JOGOS: handle_awaiting_desbloqueio_sem_jogos,
+    Status.AGUARDANDO_OPCAO_RETORNO: handle_awaiting_return_option
+}
+
+# --- FUNÇÃO PRINCIPAL ---
 
 def whatsapp_webhook():
+    """
+    Função principal que processa a requisição do Twilio e gera a resposta do chatbot.
+    """
     try:
-        incoming_msg = request.values.get('Body', '').lower().strip()
-        sender_phone_number = request.values.get('From', '')
-
-        print(f"\n--- Nova Mensagem ---")
-        print(f"Origem: {sender_phone_number}")
-        print(f"Mensagem recebida: {incoming_msg}")
-
+        incoming_msg = request.values.get('Body', '').lower()
+        sender_phone_number = request.values.get('From', '').replace('whatsapp:', '')
         resp = MessagingResponse()
+        
         current_status = get_lead_status(sender_phone_number)
+        
         response_message = ""
         
-        # Prevemos a intenção da mensagem para lidar com comandos especiais
-        intent = get_intent(incoming_msg)
-        print(f"Intenção detectada: {intent}")
-
-        # --- Lógica de prioridade por comandos especiais (mais confiável) ---
+        # --- Lógica de fluxo principal otimizada ---
         
-        # 1. Checa por comandos de finalização de conversa primeiro
-        if intent == 'finalizar_conversa' or (incoming_msg == '9' and current_status != 'FINALIZADO'):
-            update_lead_status_and_data(sender_phone_number, 'FINALIZADO', {})
-            response_message = "Atendimento finalizado. Para começar um novo, digite 'oi'."
-
-        # 2. Checa por comandos de saudação (para iniciar ou reiniciar a conversa)
-        elif intent == 'saudacao':
-            response_message = start_new_conversation(sender_phone_number)
-
-        # 3. Lógica para comandos de controle (independente do status)
-        elif intent == 'comando_voltar':
-            if current_status == 'AGUARDANDO_EMAIL':
-                update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_NOME')
-                response_message = "Voltando... Qual é o seu nome?"
-            elif current_status == 'AGUARDANDO_ENDERECO':
-                update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_EMAIL')
-                response_message = "Voltando... Por favor, digite seu email:"
-            elif current_status == 'AGUARDANDO_MODELO':
-                update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_ENDERECO')
-                response_message = "Voltando... Qual é o seu endereço completo?"
-            elif current_status == 'AGUARDANDO_ANO':
-                update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_MODELO')
-                response_message = "Voltando... Qual é o modelo do seu Xbox? (1 - Fat, 2 - Slim, 3 - Super Slim)"
-            elif current_status == 'AGUARDANDO_ARMAZENAMENTO':
-                update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_ANO')
-                response_message = "Voltando... Qual o ano de fabricação do seu console?"
-            elif current_status == 'AGUARDANDO_JOGOS' or current_status == 'AGUARDANDO_CONTINUAR':
-                update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_ARMAZENAMENTO')
-                response_message = "Voltando... O seu console tem Armazenamento? (1- HD Interno, 2- HD Externo, etc.)"
-            elif current_status == 'AGUARDANDO_LOCALIZACAO':
-                update_lead_status_and_data(sender_phone_number, 'AGUARDANDO_JOGOS')
-                jogos_options = ""
-                for num, jogo in content_data.get("jogos", {}).items():
-                    jogos_options += f"{num}. {jogo}\n"
-                response_message = f"Voltando... Escolha 15 jogos da lista abaixo:\n{jogos_options}"
-            else:
-                response_message = "Você está no início da conversa ou o atendimento foi finalizado. Não é possível voltar."
-
-        elif intent == 'comando_ajuda':
-            if current_status == 'AGUARDANDO_NOME':
-                response_message = "Por favor, digite seu nome. É a primeira informação que precisamos para começar o atendimento."
-            elif current_status == 'AGUARDANDO_EMAIL':
-                response_message = "Estamos esperando seu email. Ele é importante para enviarmos o resumo do atendimento."
-            elif current_status == 'AGUARDANDO_ENDERECO':
-                response_message = "Por favor, digite seu endereço completo para que possamos calcular o frete e tempo de serviço."
-            elif current_status == 'AGUARDANDO_MODELO':
-                response_message = "Precisamos saber o modelo do seu Xbox. Digite o número correspondente à sua opção (1, 2 ou 3)."
-            elif current_status == 'AGUARDANDO_ANO':
-                response_message = "Por favor, digite o ano de fabricação do seu console. Fica na parte de trás do aparelho."
-            elif current_status == 'AGUARDANDO_ARMAZENAMENTO':
-                response_message = "Estamos na etapa de armazenamento. Por favor, digite o número que melhor descreve o seu caso (1 a 4)."
-            elif current_status == 'AGUARDANDO_JOGOS':
-                response_message = "Por favor, digite o número de até 15 jogos que deseja, separados por vírgula. Exemplo: 1,5,10"
-            elif current_status == 'AGUARDANDO_CONTINUAR':
-                response_message = "Para continuar o atendimento mesmo sem armazenamento, digite '1'. Caso contrário, digite '2'."
-            elif current_status == 'AGUARDANDO_LOCALIZACAO':
-                response_message = "Estamos na última etapa. Para receber o link da nossa localização, digite '1'."
-            else:
-                response_message = "Para começar um novo atendimento, digite 'oi'. Se precisar de ajuda, digite 'ajuda'."
+        # 1. Checagem de comandos de finalização por correspondência exata
+        finalizar_comandos = ['9', 'quero finalizar', 'nao quero mais', 'parar']
+        if incoming_msg.strip().lower() in finalizar_comandos:
+            save_or_update_lead({'telefone': sender_phone_number, 'status': Status.FINALIZADO})
+            response_message = content_data.get('respostas', {}).get('resposta_finalizada', 'Seu pedido foi finalizado. Em breve um de nossos consultores entrará em contato para te ajudar. Agradecemos o contato.')
         
-        # 4. Se não for um comando especial, lida com o fluxo de conversa normal
+        # 2. Checagem de comandos de ajuda
+        elif get_intent(incoming_msg) == 'comando_ajuda':
+            response_message = content_data.get('ajuda', 'Para recomeçar, digite "oi". Se deseja encerrar, digite "finalizar" ou "9".')
+        
+        # 3. Checagem de comandos de "voltar"
+        elif get_intent(incoming_msg) == 'comando_voltar':
+            response_message = content_data.get('voltar', 'Desculpe, o comando "voltar" ainda não está disponível no meu fluxo. Para recomeçar, digite "oi".')
+
+        # 4. Início de conversa para usuário que JÁ FOI FINALIZADO
+        elif current_status == Status.FINALIZADO and get_intent(incoming_msg) == 'saudacao':
+            lead_info = get_lead_info(sender_phone_number)
+            nome = lead_info.get('nome', 'amigo')
+            # Muda o status para a nova etapa de escolha
+            save_or_update_lead({'telefone': sender_phone_number, 'status': Status.AGUARDANDO_OPCAO_RETORNO})
+            response_message = f"Olá novamente, {nome}! Qual é a sua opção?\n\n1 - Fazer um novo orçamento\n2 - Ver resumo do pedido anterior"
+
+        # 5. Início de conversa para novo usuário (ou que não está finalizado)
+        elif (not current_status or current_status == Status.INICIADO) and get_intent(incoming_msg) == 'saudacao':
+            lead_data = {
+                'timestamp': datetime.now().isoformat(),
+                'nome': 'Não informado',
+                'email': 'Não informado',
+                'telefone': sender_phone_number,
+                'endereco': 'Não informado',
+                'modelo': 'Não informado',
+                'ano': 0,
+                'tipo_de_armazenamento': 'Não informado',
+                'jogos_selecionados': 'Não informado',
+                'status': Status.AGUARDANDO_NOME
+            }
+            save_or_update_lead(lead_data)
+            response_message = content_data.get('boas_vindas', 'Olá, tudo bem? Para começarmos, qual é o seu nome?')
+        
+        # 6. Fluxo de conversa normal
+        elif current_status in status_handlers:
+            handler = status_handlers[current_status]
+            response_message = handler(incoming_msg, sender_phone_number)
+        
+        # 7. Fallback para mensagens não reconhecidas
         else:
-            if current_status is None or current_status == 'FINALIZADO':
-                response_message = "Parece que a nossa conversa foi finalizada. Para começar um novo atendimento, digite 'oi'. 👋"
-            elif current_status == 'AGUARDANDO_NOME':
-                response_message = handle_awaiting_name(incoming_msg, sender_phone_number)
-            elif current_status == 'AGUARDANDO_EMAIL':
-                response_message = handle_awaiting_email(incoming_msg, sender_phone_number)
-            elif current_status == 'AGUARDANDO_ENDERECO':
-                response_message = handle_awaiting_address(incoming_msg, sender_phone_number)
-            elif current_status == 'AGUARDANDO_MODELO':
-                response_message = handle_awaiting_model(incoming_msg, sender_phone_number)
-            elif current_status == 'AGUARDANDO_ANO':
-                response_message = handle_awaiting_year(incoming_msg, sender_phone_number)
-            elif current_status == 'AGUARDANDO_ARMAZENAMENTO':
-                response_message = handle_awaiting_storage(incoming_msg, sender_phone_number)
-            elif current_status == 'AGUARDANDO_CONTINUAR':
-                response_message = handle_awaiting_continue(incoming_msg, sender_phone_number)
-            elif current_status == 'AGUARDANDO_JOGOS':
-                response_message = handle_awaiting_games(incoming_msg, sender_phone_number)
-            elif current_status == 'AGUARDANDO_LOCALIZACAO':
-                response_message = handle_awaiting_location(incoming_msg, sender_phone_number)
-            else:
-                response_message = "Desculpe, não entendi. Por favor, digite 'oi' para começar."
+            response_message = "Desculpe, não entendi. Por favor, digite 'oi' para começar."
 
         resp.message(response_message)
         print(f"Resposta gerada: {response_message}\n")
         return str(resp)
 
     except Exception as e:
-        print(f"Ocorreu um erro no webhook: {e}")
-        return "Erro interno. Por favor, tente novamente mais tarde."
+        print(f"Erro no webhook do WhatsApp: {e}")
+        resp = MessagingResponse()
+        resp.message("Desculpe, ocorreu um erro. Por favor, tente novamente mais tarde.")
+        return str(resp)

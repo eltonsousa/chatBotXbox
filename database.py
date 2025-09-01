@@ -1,18 +1,22 @@
 import sqlite3
 import pandas as pd
-import json
+from datetime import datetime
+
+DATABASE_NAME = 'chatbot.db'
 
 def init_db():
-    """Inicializa o banco de dados e cria a tabela 'leads'."""
-    conn = sqlite3.connect('chatbot.db')
+    """
+    Inicializa o banco de dados e cria a tabela 'leads' com a coluna 'telefone'
+    como chave primária para garantir que cada telefone seja único.
+    """
+    conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS leads (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telefone TEXT PRIMARY KEY,
             timestamp TEXT,
             nome TEXT,
             email TEXT,
-            telefone TEXT,
             endereco TEXT,
             modelo TEXT,
             ano INTEGER,
@@ -24,74 +28,52 @@ def init_db():
     conn.commit()
     conn.close()
 
-def save_lead_to_db(lead_data):
-    """Salva um novo lead no banco de dados."""
-    conn = sqlite3.connect('chatbot.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO leads (timestamp, nome, email, telefone, endereco, modelo, ano, tipo_de_armazenamento, jogos_selecionados, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        lead_data.get('timestamp'),
-        lead_data.get('nome'),
-        lead_data.get('email'),
-        lead_data.get('telefone'),
-        lead_data.get('endereco'),
-        lead_data.get('modelo'),
-        lead_data.get('ano'),
-        lead_data.get('tipo_de_armazenamento'),
-        lead_data.get('jogos_selecionados'),
-        lead_data.get('status')
-    ))
-    conn.commit()
-    conn.close()
-
-def update_lead_status_and_data(phone_number, new_status, new_data=None):
-    """Atualiza o status e outros dados de um lead existente."""
-    conn = sqlite3.connect('chatbot.db')
+def save_or_update_lead(lead_data):
+    """
+    Salva ou atualiza um lead no banco de dados usando o 'telefone' como identificador único.
+    """
+    conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
     
-    if new_data:
-        update_str = ', '.join([f"{key} = ?" for key in new_data.keys()])
-        values = list(new_data.values()) + [new_status, phone_number, phone_number]
-        cursor.execute(f'''
-            UPDATE leads
-            SET {update_str}, status = ?
-            WHERE telefone = ? AND id = (
-                SELECT id FROM leads
-                WHERE telefone = ?
-                ORDER BY timestamp DESC
-                LIMIT 1
-            )
-        ''', tuple(values))
-    else:
-        cursor.execute('''
-            UPDATE leads
-            SET status = ?
-            WHERE telefone = ? AND id = (
-                SELECT id FROM leads
-                WHERE telefone = ?
-                ORDER BY timestamp DESC
-                LIMIT 1
-            )
-        ''', (new_status, phone_number, phone_number))
+    # Prepara os dados, removendo o telefone e o timestamp da lista de colunas a serem atualizadas
+    telefone = lead_data.pop('telefone', None)
+    lead_data['timestamp'] = datetime.now().isoformat()
+    
+    if not telefone:
+        # Se o telefone não for fornecido, a operação não pode ser concluída.
+        print("Erro: O número de telefone é obrigatório para salvar ou atualizar um lead.")
+        return
+
+    # Constrói a query de atualização dinamicamente
+    update_fields = ", ".join([f"{key} = ?" for key in lead_data.keys()])
+    update_values = list(lead_data.values())
+    
+    # Tenta atualizar o registro existente
+    cursor.execute(f"UPDATE leads SET {update_fields} WHERE telefone = ?", update_values + [telefone])
+    
+    # Se nenhuma linha foi atualizada, o lead não existia. Então, insere um novo.
+    if cursor.rowcount == 0:
+        columns = "telefone, " + ", ".join(lead_data.keys())
+        placeholders = ", ".join(["?"] * (len(lead_data) + 1))
         
+        cursor.execute(f"INSERT INTO leads ({columns}) VALUES ({placeholders})", [telefone] + list(lead_data.values()))
+    
     conn.commit()
     conn.close()
 
 def get_lead_status(phone_number):
     """Retorna o status atual do lead, ou None se não existir."""
-    conn = sqlite3.connect('chatbot.db')
+    conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
-    cursor.execute("SELECT status FROM leads WHERE telefone = ? ORDER BY timestamp DESC LIMIT 1", (phone_number,))
+    cursor.execute("SELECT status FROM leads WHERE telefone = ?", (phone_number,))
     result = cursor.fetchone()
     conn.close()
     return result[0] if result else None
 
 def get_lead_info(phone_number):
     """Retorna as informações do lead como um dicionário, ou None se não existir."""
-    conn = sqlite3.connect('chatbot.db')
-    df = pd.read_sql_query("SELECT * FROM leads WHERE telefone = ? ORDER BY timestamp DESC LIMIT 1", conn, params=(phone_number,))
+    conn = sqlite3.connect(DATABASE_NAME)
+    df = pd.read_sql_query("SELECT * FROM leads WHERE telefone = ?", conn, params=(phone_number,))
     conn.close()
     
     if not df.empty:
@@ -101,11 +83,11 @@ def get_lead_info(phone_number):
 
 def get_data_from_db():
     """Função centralizada para ler dados da tabela 'leads' do banco de dados."""
-    conn = sqlite3.connect('chatbot.db')
+    conn = sqlite3.connect(DATABASE_NAME)
     try:
         df = pd.read_sql_query("SELECT * FROM leads", conn)
     except pd.io.sql.DatabaseError:
-        df = pd.DataFrame(columns=['id', 'timestamp', 'nome', 'email', 'telefone', 'endereco', 'modelo', 'ano', 'tipo_de_armazenamento', 'jogos_selecionados', 'status'])
+        df = pd.DataFrame(columns=['telefone', 'timestamp', 'nome', 'email', 'endereco', 'modelo', 'ano', 'tipo_de_armazenamento', 'jogos_selecionados', 'status'])
     finally:
         conn.close()
 

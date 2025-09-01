@@ -1,8 +1,42 @@
 {
+    "boas_vindas": "Olá, tudo bem? Para começarmos, qual é o seu nome?",
+    "menu": "Para continuar, responda as perguntas. Se precisar de ajuda, digite 'ajuda'.",
+    "perguntas": {
+        "pergunta_email": "Qual é o seu email?",
+        "pergunta_endereco": "Qual é o seu endereço?",
+        "pergunta_ano": "Qual o ano de fabricação do console? (Ex: 2010)",
+        "pergunta_armazenamento": "Qual o tipo de armazenamento do seu console?",
+        "pergunta_continuar_ou_encerrar": "Atenção: Consoles fabricados em 2015 não permitem o desbloqueio definitivo. Deseja continuar com a solicitação ou encerrar? (Sim/Não)",
+        "pergunta_localizacao_ou_finalizar": "Ótimo, seu pedido foi registrado! Deseja que eu envie a localização da loja para você? (Sim/Não)",
+        "pergunta_desbloqueio_sem_jogos": "Não poderá rodar jogos no seu xbox sem armazenamento!\nDeseja continuar somente com o desbloqueio?\n1 - Sim\n2 - Não"
+    },
+    "respostas": {
+        "aviso_sem_armazenamento": "Aviso: Não poderá rodar jogos no seu xbox sem armazenamento!",
+        "resposta_finalizada": "Seu pedido foi finalizado. Em breve um de nossos consultores entrará em contato para te ajudar. Agradecemos o contato.",
+        "resposta_finalizada_encerrar": "Entendido. Pedido encerrado. Em breve um de nossos consultores entrará em contato. Agradecemos o contato.",
+        "resposta_finalizada_com_localizacao": "Seu pedido foi finalizado. Em breve um de nossos consultores entrará em contato. Agradecemos o contato."
+    },
+    "erros": {
+        "erro_email": "Email inválido. Por favor, digite um email válido.",
+        "erro_modelo": "Modelo inválido. Por favor, selecione um modelo da lista.",
+        "erro_ano": "Ano inválido. Por favor, digite um ano entre 2007 e 2015.",
+        "erro_sim_nao": "Resposta inválida. Por favor, digite \"Sim\" ou \"Não\".",
+        "erro_jogos": "Seleção inválida. Por favor, selecione de 1 a 15 jogos.",
+        "erro_jogos_invalido": "Opção de jogo inválida. Por favor, selecione apenas números da lista.",
+        "erro_armazenamento": "Opção de armazenamento inválida. Por favor, selecione uma das opções de 1 a 4."
+    },
+    "ajuda": "Para recomeçar, digite 'oi'. Se deseja encerrar, digite 'finalizar' ou '9'.",
+    "voltar": "Desculpe, o comando 'voltar' ainda não está disponível no meu fluxo. Para recomeçar, digite 'oi'.",
     "modelos_xbox": {
         "1": "Fat",
         "2": "Slim",
         "3": "Super Slim"
+    },
+    "opcoes_armazenamento": {
+        "1": "HD interno",
+        "2": "HD externo",
+        "3": "Pendrive 16gb+",
+        "4": "Não tenho"
     },
     "jogos": {
         "1": "Angry Birds Trilogy",
@@ -32,5 +66,8 @@
         "25": "Spider Man 4",
         "26": "SPIDER MAN",
         "27": "Super Street Fight 4"
-    }
+    },
+    "texto_modelos": "Qual o modelo do seu Xbox?",
+    "texto_jogos": "Lista de jogos para a seleção.",
+    "localizacao_loja": "Nossa loja está localizada em [INSERIR ENDEREÇO DA LOJA AQUI]."
 }
